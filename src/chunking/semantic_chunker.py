@@ -186,6 +186,7 @@ class SemanticChunker:
         """
         Use LangChain's splitter on a single page's text.
         Converts the resulting string splits back into TextChunk objects.
+        Prepends the section_title to preserve semantic context.
         """
         # LangChain returns plain strings
         raw_chunks: List[str] = self._splitter.split_text(text)
@@ -196,8 +197,16 @@ class SemanticChunker:
             if not chunk_text:
                 continue  # skip empty splits
 
+            # Embed the section title directly into the chunk text so the vector DB
+            # and the LLM both see the explicit context.
+            if section_title and section_title not in chunk_text:
+                # Format: [SECTION TITLE] \n\n Body text...
+                final_text = f"[{section_title}]\n\n{chunk_text}"
+            else:
+                final_text = chunk_text
+
             chunks.append(TextChunk(
-                text=chunk_text,
+                text=final_text,
                 source_file=source_file,
                 page_number=page_number,
                 section_title=section_title,

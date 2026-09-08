@@ -1,289 +1,653 @@
 {
-  "schema_version": "1.0",
-  "evaluation_timestamp": "2026-09-02T17:56:03",
+  "schema_version": "2.0",
+  "evaluation_timestamp": "2026-09-03T01:31:34",
   "document": "consulting_agreement.txt",
-  "model_backend": "HuggingFace / OpenRouter (free tier)",
-  "num_questions": 15,
-  "llm_answers_succeeded": 15,
+  "model_backend": "HuggingFace",
+  "llm_model": "meta-llama/llama-3.3-70b-instruct",
+  "num_questions": 20,
+  "llm_answers_succeeded": 20,
   "llm_answers_failed": 0,
   "metric_methodology": {
-    "answer_precision": "lexical token-overlap set-intersection",
-    "answer_recall": "lexical token-overlap set-intersection",
-    "answer_f1": "harmonic mean of precision and recall",
-    "key_fact_recall": "exact substring match on critical facts",
-    "context_relevance": "token overlap between retrieved chunks and ground truth",
-    "faithfulness": "NOT_EVALUATED — ragas not installed",
-    "answer_relevancy": "NOT_EVALUATED — ragas not installed"
+    "retrieval_recall_at_k": "Retrieval Recall@K (deterministic): 1 if ANY of the top-K retrieved chunks contains the reference_section keyword, else 0. Keyword heuristic — not semantic.",
+    "retrieval_token_overlap": "Diagnostic only: token-set overlap between retrieved chunks and ground-truth answer. High overlap = retriever found the right passage. NOT 'retrieval accuracy'.",
+    "key_fact_recall": "Exact substring match for critical named entities, numbers, and dates. Fraction of key_facts found in the answer. Zero tolerance for missing facts.",
+    "lexical_f1": "Set-based token overlap F1. NOT ROUGE-1 (which uses token counts allowing duplicates). Inflated by LLM verbosity. Use Key Fact Recall as primary quality signal instead.",
+    "faithfulness": "ragas 0.2.x Faithfulness (LLM-as-Judge): decomposes answer into statements, verifies each against retrieved context using NLI. Measures hallucination resistance.",
+    "answer_relevancy": "ragas 0.2.x Answer Relevancy: generates reverse questions from answer, measures embedding similarity to original question. Detects irrelevant answers.",
+    "context_recall": "ragas 0.2.x Context Recall: classifies each ground-truth sentence as attributable or not attributable to retrieved context. Measures retrieval completeness."
   },
-  "aggregate_metrics": {
-    "answer_precision": 0.2837,
-    "answer_precision_std": 0.1444,
-    "answer_recall": 0.9438,
-    "answer_recall_std": 0.1371,
-    "answer_f1": 0.4174,
-    "answer_f1_std": 0.1786,
-    "key_fact_recall": 1.0,
-    "key_fact_recall_std": 0.0,
-    "context_relevance": 0.9589,
-    "context_relevance_std": 0.0866,
+  "tier1_aggregate": {
+    "retrieval_recall_at_k": 1.0,
+    "retrieval_recall_at_k_std": 0.0,
+    "retrieval_token_overlap": 0.8904,
+    "retrieval_token_overlap_std": 0.1782,
+    "key_fact_recall": 0.9333,
+    "key_fact_recall_std": 0.1658,
+    "lexical_f1": 0.467,
+    "lexical_f1_std": 0.1312,
+    "lexical_precision": 0.3324,
+    "lexical_recall": 0.9015
+  },
+  "tier2_ragas": {
     "faithfulness": null,
-    "answer_relevancy": null
+    "answer_relevancy": null,
+    "context_recall": null,
+    "num_evaluated": 8,
+    "per_question": [
+      {
+        "id": "Q01",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q02",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q05",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q08",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q10",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q16",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q17",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      },
+      {
+        "id": "Q18",
+        "faithfulness": null,
+        "answer_relevancy": null,
+        "context_recall": null
+      }
+    ],
+    "status": "completed"
   },
   "per_question_results": [
     {
       "id": "Q01",
+      "difficulty": "easy",
       "question": "What is the total fee amount for the consulting engagement?",
       "ground_truth": "The total fee is $84,200.00.",
-      "answer": "The total fee amount for the consulting engagement is $84,200.00.\n\nSource: Page 5",
+      "reference_section": "COMPENSATION",
+      "answer": "The total fee amount for the consulting engagement is $84,200.00. \n\nSource: Page 5, Section: 2. COMPENSATION",
       "llm_error": null,
+      "retrieved_contexts": [
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "CONSULTING AGREEMENT",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[1. SCOPE OF SERVICES]\n\nThe Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date."
+      ],
       "retrieved_count": 5,
-      "f1": {
-        "precision": 0.4167,
-        "recall": 1.0,
-        "f1": 0.5882
-      },
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.8,
       "key_fact_recall": 1.0,
-      "context_relevance": 0.8,
+      "lexical_f1": {
+        "precision": 0.3333,
+        "recall": 1.0,
+        "f1": 0.5
+      },
       "faithfulness": null,
-      "answer_relevancy": null
+      "answer_relevancy": null,
+      "context_recall": null
     },
     {
       "id": "Q02",
-      "question": "What are the three payment milestones?",
+      "difficulty": "medium",
+      "question": "What are the three payment milestones and their amounts?",
       "ground_truth": "$25,000 upon execution, $30,000 at Day 45 interim report, $29,200 at final report.",
-      "answer": "The three payment milestones are:\n\n• $25,000 upon execution of this Agreement\n• $30,000 upon delivery of the interim report at Day 45\n• $29,200 upon delivery of the final report\n\nSource: Page 5",
+      "reference_section": "COMPENSATION",
+      "answer": "The three payment milestones and their amounts are:\n\n• $25,000 upon execution of this Agreement\n• $30,000 upon delivery of the interim report at Day 45\n• $29,200 upon delivery of the final report\n\nSource: Page 5, Section: 2. COMPENSATION",
       "llm_error": null,
+      "retrieved_contexts": [
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "3. TERM AND TERMINATION",
+        "2. COMPENSATION",
+        "4. CONFIDENTIALITY",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis."
+      ],
       "retrieved_count": 5,
-      "f1": {
-        "precision": 0.4783,
-        "recall": 1.0,
-        "f1": 0.6471
-      },
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
       "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
+      "lexical_f1": {
+        "precision": 0.3793,
+        "recall": 1.0,
+        "f1": 0.55
+      },
       "faithfulness": null,
-      "answer_relevancy": null
+      "answer_relevancy": null,
+      "context_recall": null
     },
     {
       "id": "Q03",
+      "difficulty": "easy",
       "question": "Who are the two parties in this agreement?",
-      "ground_truth": "Acme Corporation and Jane Smith Consulting LLC.",
-      "answer": "The two parties in this agreement are:\n\n• Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 (the \"Client\")\n• Jane Smith Consulting LLC, a California limited liability company (the \"Consultant\")\n\nSource: Page 1",
+      "ground_truth": "Acme Corporation (Client) and Jane Smith Consulting LLC (Consultant).",
+      "reference_section": "CONSULTING AGREEMENT",
+      "answer": "The two parties in this agreement are:\n\n• Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client')\n• Jane Smith Consulting LLC, a California limited liability company ('Consultant')\n\nSource: Page 1, Section: CONSULTING AGREEMENT",
       "llm_error": null,
+      "retrieved_contexts": [
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[5. GOVERNING LAW]\n\nIN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.",
+        "[5. GOVERNING LAW]\n\nThis Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws provisions. Any disputes arising under this Agreement shall be resolved through binding arbitration in Wilmington, Delaware."
+      ],
       "retrieved_count": 5,
-      "f1": {
-        "precision": 0.1818,
-        "recall": 0.8571,
-        "f1": 0.3
-      },
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
       "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
+      "lexical_f1": {
+        "precision": 0.2353,
+        "recall": 0.8889,
+        "f1": 0.3721
+      },
       "faithfulness": null,
-      "answer_relevancy": null
+      "answer_relevancy": null,
+      "context_recall": null
     },
     {
       "id": "Q04",
+      "difficulty": "easy",
       "question": "What is the late payment interest rate?",
       "ground_truth": "1.5% per month.",
-      "answer": "The late payment interest rate is 1.5% per month.\n\nSource: Page 5",
+      "reference_section": "COMPENSATION",
+      "answer": "The late payment interest rate is 1.5% per month.\n\nSource: Page 5, Section: 2. COMPENSATION",
       "llm_error": null,
+      "retrieved_contexts": [
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "3. TERM AND TERMINATION",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "2. COMPENSATION",
+        "4. CONFIDENTIALITY"
+      ],
       "retrieved_count": 5,
-      "f1": {
-        "precision": 0.25,
-        "recall": 1.0,
-        "f1": 0.4
-      },
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
       "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q05",
-      "question": "How can the agreement be terminated early?",
-      "ground_truth": "Either party may terminate upon thirty days prior written notice.",
-      "answer": "The agreement can be terminated early by either party upon thirty (30) days' prior written notice to the other party.\n\nSource: Page 7",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.381,
-        "recall": 0.8,
-        "f1": 0.5161
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q06",
-      "question": "What happens to fees if the agreement is terminated early?",
-      "ground_truth": "The consultant is compensated for services performed up to termination on a pro-rata basis.",
-      "answer": "If the agreement is terminated early, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.\n\nSource: Page 7",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.5185,
-        "recall": 1.0,
-        "f1": 0.6829
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q07",
-      "question": "What state's laws govern this agreement?",
-      "ground_truth": "The State of Delaware.",
-      "answer": "The laws of the State of Delaware govern this agreement.\n\nSource: Page 11",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.3636,
-        "recall": 1.0,
-        "f1": 0.5333
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q08",
-      "question": "How long does the confidentiality obligation last after termination?",
-      "ground_truth": "Two years after termination.",
-      "answer": "The confidentiality obligation lasts for a period of two (2) years after termination.\n\nSource: Page 9",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.25,
-        "recall": 1.0,
-        "f1": 0.4
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 0.75,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q09",
-      "question": "What is the total duration of the agreement?",
-      "ground_truth": "Six months from the effective date.",
-      "answer": "The total duration of the agreement is six (6) months, unless earlier terminated.\n\nSource: Page 7",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.2,
-        "recall": 0.5,
-        "f1": 0.2857
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 0.8333,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q10",
-      "question": "What services does the consultant provide?",
-      "ground_truth": "Strategic advisory services for digital transformation including technology assessment, roadmap development, vendor evaluation, and change management.",
-      "answer": "Grounded answer from the document:\n- The Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. (consulting_agreement.txt p.3)\n- In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis. (consulting_agreement.txt p.7)\n- The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date. (consulting_agreement.txt p.3)\nSource: consulting_agreement.txt p.3",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.2424,
-        "recall": 1.0,
-        "f1": 0.3902
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q11",
-      "question": "What is the invoice reference number?",
-      "ground_truth": "INV-2024-0341.",
-      "answer": "Grounded answer from the document:\n- Invoice Reference: INV-2024-0341 (consulting_agreement.txt p.13)\n- Contact: support@acme-corp.com | billing@janesmithconsulting.com (consulting_agreement.txt p.13)\n- Signed: Jane Smith, Managing Partner, Jane Smith Consulting LLC (consulting_agreement.txt p.13)\nSource: consulting_agreement.txt p.13",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.0476,
-        "recall": 1.0,
-        "f1": 0.0909
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q12",
-      "question": "Where will disputes be resolved?",
-      "ground_truth": "Through binding arbitration in Wilmington, Delaware.",
-      "answer": "Grounded answer from the document:\n- Any disputes arising under this Agreement shall be resolved through binding arbitration in Wilmington, Delaware. (consulting_agreement.txt p.11)\n- This Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant'). (consulting_agreement.txt p.1)\n- This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws provisions. (consulting_agreement.txt p.11)\nSource: consulting_agreement.txt p.11",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.0882,
-        "recall": 1.0,
-        "f1": 0.1622
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q13",
-      "question": "When was the agreement signed?",
-      "ground_truth": "January 15, 2024.",
-      "answer": "The agreement was signed on the date first written above, which is January 15, 2024.\n\nSource: Page 12",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.1765,
-        "recall": 1.0,
-        "f1": 0.3
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q14",
-      "question": "What is Acme Corporation's address?",
-      "ground_truth": "742 Evergreen Terrace, Springfield, IL 62704.",
-      "answer": "Acme Corporation's address is 742 Evergreen Terrace, Springfield, IL 62704.\n\nSource: Page 1",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
-        "precision": 0.4615,
-        "recall": 1.0,
-        "f1": 0.6316
-      },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
-      "faithfulness": null,
-      "answer_relevancy": null
-    },
-    {
-      "id": "Q15",
-      "question": "When must the final deliverable be submitted?",
-      "ground_truth": "Within 90 days of the effective date.",
-      "answer": "The final report must be delivered upon delivery of the final report, but the exact date is not specified in the provided context. However, it is mentioned that the Consultant shall deliver a comprehensive written report within 90 days of the Effective Date.\n\nSource: Page 3",
-      "llm_error": null,
-      "retrieved_count": 5,
-      "f1": {
+      "lexical_f1": {
         "precision": 0.2,
         "recall": 1.0,
         "f1": 0.3333
       },
-      "key_fact_recall": 1.0,
-      "context_relevance": 1.0,
       "faithfulness": null,
-      "answer_relevancy": null
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q05",
+      "difficulty": "medium",
+      "question": "How can either party terminate this agreement early, and how much notice is required?",
+      "ground_truth": "Either party may terminate upon thirty (30) days prior written notice to the other party.",
+      "reference_section": "TERM AND TERMINATION",
+      "answer": "Either party can terminate this agreement upon thirty (30) days' prior written notice to the other party.\n\nSource: Page 7, Section: 3. TERM AND TERMINATION",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "[5. GOVERNING LAW]\n\nIN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.",
+        "3. TERM AND TERMINATION"
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.5417,
+        "recall": 0.9286,
+        "f1": 0.6842
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q06",
+      "difficulty": "medium",
+      "question": "What happens to consultant fees if the agreement is terminated early?",
+      "ground_truth": "The consultant is compensated for services performed up to termination on a pro-rata basis.",
+      "reference_section": "TERM AND TERMINATION",
+      "answer": "If the agreement is terminated early, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.\n\nSource: Page 7, Section: 3. TERM AND TERMINATION",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "CONSULTING AGREEMENT",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.4516,
+        "recall": 1.0,
+        "f1": 0.6222
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q07",
+      "difficulty": "easy",
+      "question": "Which state's laws govern this agreement?",
+      "ground_truth": "The State of Delaware.",
+      "reference_section": "GOVERNING LAW",
+      "answer": "The laws of the State of Delaware govern this agreement.\n\nSource: Page 11, Section: 5. GOVERNING LAW",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[5. GOVERNING LAW]\n\nThis Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws provisions. Any disputes arising under this Agreement shall be resolved through binding arbitration in Wilmington, Delaware.",
+        "[5. GOVERNING LAW]\n\nIN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "5. GOVERNING LAW",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.2667,
+        "recall": 1.0,
+        "f1": 0.4211
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q08",
+      "difficulty": "medium",
+      "question": "For how long does the confidentiality obligation survive after the agreement ends?",
+      "ground_truth": "Two years after termination of the agreement.",
+      "reference_section": "CONFIDENTIALITY",
+      "answer": "The confidentiality obligation survives for a period of two (2) years after the agreement ends.\n\nSource: Page 9, Section: 4. CONFIDENTIALITY",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "4. CONFIDENTIALITY",
+        "CONSULTING AGREEMENT",
+        "3. TERM AND TERMINATION"
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.8571,
+      "key_fact_recall": 0.5,
+      "lexical_f1": {
+        "precision": 0.3158,
+        "recall": 0.8571,
+        "f1": 0.4615
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q09",
+      "difficulty": "easy",
+      "question": "What is the total duration of the consulting agreement?",
+      "ground_truth": "Six months from the effective date.",
+      "reference_section": "TERM AND TERMINATION",
+      "answer": "The consulting agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated.\n\nSource: Page 7, Section: 3. TERM AND TERMINATION",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "CONSULTING AGREEMENT",
+        "[1. SCOPE OF SERVICES]\n\nThe Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date.",
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.8333,
+      "key_fact_recall": 0.5,
+      "lexical_f1": {
+        "precision": 0.1852,
+        "recall": 0.8333,
+        "f1": 0.303
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q10",
+      "difficulty": "medium",
+      "question": "What specific services is the consultant contracted to provide?",
+      "ground_truth": "Technology infrastructure assessment, three-year technology roadmap development, vendor evaluation and selection support, and change management recommendations.",
+      "reference_section": "SCOPE OF SERVICES",
+      "answer": "The consultant is contracted to provide the following specific services:\n\n• Assessment of current technology infrastructure\n• Development of a three-year technology roadmap\n• Vendor evaluation and selection support\n• Change management recommendations\n\nSource: Page 3, Section: 1. SCOPE OF SERVICES",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[1. SCOPE OF SERVICES]\n\nThe Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "CONSULTING AGREEMENT",
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant')."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.4375,
+        "recall": 1.0,
+        "f1": 0.6087
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q11",
+      "difficulty": "easy",
+      "question": "What is the invoice reference number in this agreement?",
+      "ground_truth": "INV-2024-0341.",
+      "reference_section": "Invoice Reference",
+      "answer": "The invoice reference number is INV-2024-0341.\n\nSource: Page 13, Section: 5. GOVERNING LAW",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[5. GOVERNING LAW]\n\nSigned: John Doe, CEO, Acme Corporation\nSigned: Jane Smith, Managing Partner, Jane Smith Consulting LLC\nContact: support@acme-corp.com | billing@janesmithconsulting.com\nInvoice Reference: INV-2024-0341",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "CONSULTING AGREEMENT"
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.0769,
+        "recall": 1.0,
+        "f1": 0.1429
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q12",
+      "difficulty": "medium",
+      "question": "Where and how will any disputes under this agreement be resolved?",
+      "ground_truth": "Through binding arbitration in Wilmington, Delaware.",
+      "reference_section": "GOVERNING LAW",
+      "answer": "Any disputes arising under this Agreement shall be resolved through binding arbitration in Wilmington, Delaware.\n\nSource: Page 11, Section: 5. GOVERNING LAW",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[5. GOVERNING LAW]\n\nThis Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws provisions. Any disputes arising under this Agreement shall be resolved through binding arbitration in Wilmington, Delaware.",
+        "[5. GOVERNING LAW]\n\nIN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.",
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant')."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.2727,
+        "recall": 1.0,
+        "f1": 0.4286
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q13",
+      "difficulty": "easy",
+      "question": "What is the effective date of this consulting agreement?",
+      "ground_truth": "January 15, 2024.",
+      "reference_section": "CONSULTING AGREEMENT",
+      "answer": "The effective date of this consulting agreement is January 15, 2024.\n\nSource: Page 1, Section: CONSULTING AGREEMENT",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[1. SCOPE OF SERVICES]\n\nThe Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date.",
+        "CONSULTING AGREEMENT",
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "f1": 0.3333
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q14",
+      "difficulty": "easy",
+      "question": "What is Acme Corporation's registered office address?",
+      "ground_truth": "742 Evergreen Terrace, Springfield, IL 62704.",
+      "reference_section": "CONSULTING AGREEMENT",
+      "answer": "Acme Corporation's registered office address is 742 Evergreen Terrace, Springfield, IL 62704.\n\nSource: Page 1, Section: CONSULTING AGREEMENT",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[5. GOVERNING LAW]\n\nSigned: John Doe, CEO, Acme Corporation\nSigned: Jane Smith, Managing Partner, Jane Smith Consulting LLC\nContact: support@acme-corp.com | billing@janesmithconsulting.com\nInvoice Reference: INV-2024-0341",
+        "4. CONFIDENTIALITY",
+        "2. COMPENSATION",
+        "CONSULTING AGREEMENT"
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.3333,
+        "recall": 1.0,
+        "f1": 0.5
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q15",
+      "difficulty": "easy",
+      "question": "Within how many days of the effective date must the consultant deliver the final report?",
+      "ground_truth": "Within 90 days of the effective date.",
+      "reference_section": "SCOPE OF SERVICES",
+      "answer": "The consultant must deliver the final report within 90 days of the Effective Date.\n\nSource: Page 3, Section: 1. SCOPE OF SERVICES",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[1. SCOPE OF SERVICES]\n\nThe Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "CONSULTING AGREEMENT",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant')."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.3684,
+        "recall": 1.0,
+        "f1": 0.5385
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q16",
+      "difficulty": "hard",
+      "question": "If the client terminates the agreement at Day 30, how much is the consultant owed based on the payment schedule?",
+      "ground_truth": "The consultant is owed a pro-rata amount for 30 out of 180 days. At the $84,200 total fee, that is approximately $14,033 (30/180 × $84,200). Only the $25,000 execution payment would be due at Day 30; the Day 45 and final milestones would not yet be triggered.",
+      "reference_section": [
+        "TERM AND TERMINATION",
+        "COMPENSATION"
+      ],
+      "answer": "Since the client terminated the agreement at Day 30, the consultant would have only performed services for 30 days. To calculate the pro-rata basis, we need to calculate the fraction of the total services performed.\n\nTotal services = 6 months = 183 days (assuming a month is approximately 30 days)\nServices performed = 30 days\n\nFraction of services performed = 30 days / 183 days ≈ 0.164\n\nNow, let's calculate the amount owed to the consultant:\n\nTotal compensation = $84,200.00\nFraction of services performed = 0.164\n\nAmount owed = Total compensation × Fraction of services performed\n= $84,200.00 × 0.164\n≈ $13,821.20\n\nHowever, the payment schedule is as follows:\n\n* $25,000 upon execution of this Agreement\n* $30,000 upon delivery of the interim report at Day 45\n* $29,200 upon delivery of the final report\n\nSince the client terminated the agreement at Day 30, the consultant would not have delivered the interim report or the final report. Therefore, the amount owed to the consultant would be the amount paid upon execution of the Agreement, which is $25,000.\n\nSource: Page 5, Section: 2. COMPENSATION",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "CONSULTING AGREEMENT",
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.5556,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.3478,
+        "recall": 0.6667,
+        "f1": 0.4571
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q17",
+      "difficulty": "hard",
+      "question": "What categories of information are explicitly listed as confidential under this agreement?",
+      "ground_truth": "Trade secrets, customer lists, financial data, and business strategies.",
+      "reference_section": "CONFIDENTIALITY",
+      "answer": "The categories of information explicitly listed as confidential under this agreement are:\n\n• Trade secrets\n• Customer lists\n• Financial data\n• Business strategies\n\nSource: Page 9, Section: 4. CONFIDENTIALITY",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "4. CONFIDENTIALITY",
+        "CONSULTING AGREEMENT",
+        "2. COMPENSATION",
+        "[5. GOVERNING LAW]\n\nIN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 1.0,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.3077,
+        "recall": 0.8889,
+        "f1": 0.4571
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q18",
+      "difficulty": "hard",
+      "question": "What is the total amount of the second and third payment milestones combined?",
+      "ground_truth": "The second milestone is $30,000 (Day 45 interim report) and the third is $29,200 (final report), totalling $59,200.",
+      "reference_section": "COMPENSATION",
+      "answer": "The second payment milestone is $30,000 and the third payment milestone is $29,200. The total amount of the second and third payment milestones combined is:\n\n$30,000 + $29,200 = $59,200\n\nSource: Page 5, Section: 2. COMPENSATION",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[2. COMPENSATION]\n\nClient shall pay Consultant a fixed fee of $84,200.00 for all services described herein. Payment shall be made in three installments: (i) $25,000 upon execution of this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and (iii) $29,200 upon delivery of the final report. Late payments shall accrue interest at a rate of 1.5% per month.",
+        "2. COMPENSATION",
+        "3. TERM AND TERMINATION",
+        "4. CONFIDENTIALITY",
+        "CONSULTING AGREEMENT"
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.6,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.4286,
+        "recall": 0.6,
+        "f1": 0.5
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q19",
+      "difficulty": "hard",
+      "question": "Under what circumstances does the confidentiality obligation continue after the agreement period ends, and for how long?",
+      "ground_truth": "The confidentiality obligation survives termination of the agreement for a period of two years, regardless of how the agreement ends.",
+      "reference_section": "CONFIDENTIALITY",
+      "answer": "The confidentiality obligation continues after the agreement period ends in the event of termination of the Agreement. It survives for a period of two (2) years.\n\nSource: Page 9, Section: 4. CONFIDENTIALITY",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[4. CONFIDENTIALITY]\n\nEach party agrees to maintain the confidentiality of all proprietary information disclosed by the other party during the term of this Agreement. This obligation shall survive termination of this Agreement for a period of two (2) years. Confidential information includes, but is not limited to, trade secrets, customer lists, financial data, and business strategies.",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "4. CONFIDENTIALITY",
+        "CONSULTING AGREEMENT",
+        "3. TERM AND TERMINATION"
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.7333,
+      "key_fact_recall": 0.6667,
+      "lexical_f1": {
+        "precision": 0.5417,
+        "recall": 0.8667,
+        "f1": 0.6667
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
+    },
+    {
+      "id": "Q20",
+      "difficulty": "hard",
+      "question": "Is the consultant an employee of Acme Corporation under this agreement?",
+      "ground_truth": "The agreement does not explicitly classify the consultant as an employee or independent contractor. However, Jane Smith Consulting LLC is described as the 'Consultant', not an employee, and the structure of payment milestones and deliverables suggests an independent contractor relationship.",
+      "reference_section": "CONSULTING AGREEMENT",
+      "answer": "The document does not indicate that the consultant is an employee of Acme Corporation. In fact, the consultant is identified as a separate entity, Jane Smith Consulting LLC, a California limited liability company.\n\nSource: Page 1, Section: CONSULTING AGREEMENT",
+      "llm_error": null,
+      "retrieved_contexts": [
+        "[CONSULTING AGREEMENT]\n\nThis Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024, by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California limited liability company ('Consultant').",
+        "[5. GOVERNING LAW]\n\nSigned: John Doe, CEO, Acme Corporation\nSigned: Jane Smith, Managing Partner, Jane Smith Consulting LLC\nContact: support@acme-corp.com | billing@janesmithconsulting.com\nInvoice Reference: INV-2024-0341",
+        "CONSULTING AGREEMENT",
+        "[3. TERM AND TERMINATION]\n\nThis Agreement shall commence on the Effective Date and continue for a period of six (6) months unless earlier terminated. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party. In the event of termination, the Consultant shall be compensated for all services performed up to the date of termination, calculated on a pro-rata basis.",
+        "[1. SCOPE OF SERVICES]\n\nThe Consultant agrees to provide strategic advisory services related to digital transformation, including but not limited to: (a) assessment of current technology infrastructure; (b) development of a three-year technology roadmap; (c) vendor evaluation and selection support; and (d) change management recommendations. The Consultant shall deliver a comprehensive written report within 90 days of the Effective Date."
+      ],
+      "retrieved_count": 5,
+      "retrieval_recall_hit": true,
+      "retrieval_token_overlap": 0.4286,
+      "key_fact_recall": 1.0,
+      "lexical_f1": {
+        "precision": 0.4242,
+        "recall": 0.5,
+        "f1": 0.459
+      },
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "context_recall": null
     }
   ]
 }

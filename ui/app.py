@@ -796,30 +796,34 @@ def render_pipeline_tab():
             c3.metric("Final (Reranked)",  ret.get("total_candidates",   0))
 
 
-# Entry Point for Evaluation Tab
+# Evaluation Tab
 
 
 def render_evaluation_tab():
     """
-    Display verified RAG evaluation results from the saved JSON artifact.
-
-    Loads: artifacts/evaluation/rag_evaluation_results.json
-    Falls back to a clear explanation if the file does not exist yet.
+    RAG Evaluation Dashboard.
+    Reads artifacts/evaluation/rag_evaluation_results.json.
+    Never hardcodes metric values.
     """
-    st.markdown("#### 📊 RAG Pipeline Evaluation Results")
-
     import json
+    import pandas as pd
     from pathlib import Path
 
-    artifact_path = Path(__file__).resolve().parent.parent / "artifacts" / "evaluation" / "rag_evaluation_results.json"
+    st.markdown("#### RAG Pipeline Evaluation")
+    st.caption(
+        "Results loaded from `artifacts/evaluation/rag_evaluation_results.json`. "
+        "Run `python scripts/evaluate_rag.py` to regenerate."
+    )
+
+    artifact_path = (
+        Path(__file__).resolve().parent.parent
+        / "artifacts" / "evaluation" / "rag_evaluation_results.json"
+    )
 
     if not artifact_path.exists():
         st.warning(
-            "**Evaluation results not found.**\n\n"
-            "To generate verified metrics, run the evaluation harness:\n"
-            "```bash\npython scripts/evaluate_rag.py\n```\n\n"
-            "This will create `artifacts/evaluation/rag_evaluation_results.json` "
-            "which this tab loads automatically."
+            "Evaluation artifact not found. Generate it by running:\n"
+            "```\npython scripts/evaluate_rag.py\n```"
         )
         return
 
@@ -830,106 +834,178 @@ def render_evaluation_tab():
         st.error(f"Failed to load evaluation artifact: {exc}")
         return
 
-    agg = report.get("aggregate_metrics", {})
-    meta = {
-        "evaluation_timestamp":  report.get("evaluation_timestamp", "—"),
-        "document":              report.get("document", "—"),
-        "num_questions":         report.get("num_questions", 0),
-        "llm_answers_succeeded": report.get("llm_answers_succeeded", 0),
-        "llm_answers_failed":    report.get("llm_answers_failed", 0),
-    }
+    ts     = report.get("evaluation_timestamp", "\u2014")
+    model  = report.get("llm_model", report.get("model_backend", "\u2014"))
+    n_q    = report.get("num_questions", 0)
+    n_ok   = report.get("llm_answers_succeeded", 0)
+    n_fail = report.get("llm_answers_failed", 0)
+    schema = report.get("schema_version", "1.0")
 
-    # ── Evaluation metadata ───────────────────────────────────────────────
     st.markdown(
-        f"<div class='info-card'>"
-        f"<strong style='color:#93C5FD;'>Evaluation Run</strong><br>"
         f"<small style='color:#64748B;'>"
-        f"Timestamp: {meta['evaluation_timestamp']} &nbsp;|&nbsp; "
-        f"Document: {meta['document']} &nbsp;|&nbsp; "
-        f"Questions: {meta['num_questions']} &nbsp;|&nbsp; "
-        f"Answered: {meta['llm_answers_succeeded']} &nbsp;|&nbsp; "
-        f"Failed: {meta['llm_answers_failed']}"
-        f"</small></div>",
+        f"Timestamp: <code>{ts}</code> &nbsp;|&nbsp; "
+        f"Model: <code>{model}</code> &nbsp;|&nbsp; "
+        f"Questions: {n_q} (answered: {n_ok}, failed: {n_fail}) &nbsp;|&nbsp; "
+        f"Schema: v{schema}"
+        f"</small>",
         unsafe_allow_html=True,
     )
-
     st.markdown("---")
 
-    def _pct(v):
+    def _pct(v, fallback="N/A"):
         if v is None:
-            return "N/A — not evaluated"
+            return fallback
         return f"{v * 100:.1f}%"
 
-    def _score(v):
+    def _val(v, fallback="N/A"):
         if v is None:
-            return "N/A — not evaluated"
+            return fallback
         return f"{v:.4f}"
 
-    # ── Tier 1: Deterministic metrics ─────────────────────────────────────
-    st.markdown(
-        "<div style='color:#10B981; font-weight:600; margin-bottom:8px;'>"
-        "Tier 1 — Deterministic / Lexical Metrics</div>",
-        unsafe_allow_html=True,
-    )
+    # ── Primary: ragas LLM-as-Judge ───────────────────────────────────────
+    st.markdown("**LLM-as-Judge Metrics** (ragas 0.2.x)")
     st.caption(
-        "Lexical token-overlap metrics (set-intersection). "
-        "Not equivalent to ROUGE/BLEU or embedding-based semantic evaluation."
+        "Faithfulness: are answer claims grounded in retrieved context? "
+        "Answer Relevancy: does the answer address the question? "
+        "Context Recall: does retrieved context cover the ground-truth?"
     )
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Answer Precision", _pct(agg.get("answer_precision")))
-    c2.metric("Answer Recall",    _pct(agg.get("answer_recall")))
-    c3.metric("Answer F1",        _pct(agg.get("answer_f1")))
+    ragas       = report.get("tier2_ragas", {})
+    ragas_agg   = report.get("aggregate_metrics", {})
+    ragas_status = ragas.get("status", "unknown")
+    ragas_n      = ragas.get("num_evaluated", 0)
 
+    faith_val   = ragas.get("faithfulness") or ragas_agg.get("faithfulness")
+    ansrel_val  = ragas.get("answer_relevancy") or ragas_agg.get("answer_relevancy")
+    ctxrec_val  = ragas.get("context_recall") or ragas_agg.get("context_recall")
+
+    if ragas_status == "completed" and ragas_n > 0:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Faithfulness",    _pct(faith_val),  help=f"ragas Faithfulness \u2014 n={ragas_n}")
+        c2.metric("Answer Relevancy", _pct(ansrel_val), help=f"ragas Answer Relevancy \u2014 n={ragas_n}")
+        c3.metric("Context Recall",  _pct(ctxrec_val), help=f"ragas Context Recall \u2014 n={ragas_n}")
+        st.caption(f"Evaluated on {ragas_n} of {n_q} questions (bounded for free-tier API)")
+    else:
+        st.info(f"ragas status: `{ragas_status}`")
+        st.caption("If status is 'not_attempted', run evaluate_rag.py again with ragas available.")
+
+    st.markdown("---")
+
+    # ── Retrieval + Key Facts (deterministic) ─────────────────────────────
+    st.markdown("**Retrieval & Factuality** (deterministic, no LLM)")
+    st.caption(
+        "Retrieval Recall@K: did top-K chunks contain the expected source section? "
+        "Key Fact Recall: were all required entities/numbers present in the answer?"
+    )
+
+    t1 = report.get("tier1_aggregate", ragas_agg)
     c4, c5 = st.columns(2)
-    c4.metric("Key Fact Recall",   _pct(agg.get("key_fact_recall")))
-    c5.metric("Context Relevance", _pct(agg.get("context_relevance")))
+    c4.metric(
+        "Retrieval Recall@K",
+        _pct(t1.get("retrieval_recall_at_k")),
+        help="1 if top-K chunks contain the reference section keyword (keyword heuristic)",
+    )
+    c5.metric(
+        "Key Fact Recall",
+        _pct(t1.get("key_fact_recall")),
+        help="Fraction of key entities/numbers found in the generated answer",
+    )
 
     st.markdown("---")
 
-    # ── Tier 2: LLM-as-a-Judge ────────────────────────────────────────────
-    st.markdown(
-        "<div style='color:#F59E0B; font-weight:600; margin-bottom:8px;'>"
-        "Tier 2 — LLM-as-a-Judge Metrics</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Requires `ragas` package (not installed) and consumes free-tier API quota. "
-        "Not evaluated in this run."
-    )
-
-    c6, c7 = st.columns(2)
-    c6.metric("Faithfulness",     _score(agg.get("faithfulness")))
-    c7.metric("Answer Relevancy", _score(agg.get("answer_relevancy")))
+    # ── Diagnostic: Lexical metrics ────────────────────────────────────────
+    with st.expander("Diagnostic Metrics \u2014 Lexical Baseline (not ROUGE-1)", expanded=False):
+        st.caption(
+            "Set-based token overlap. NOT ROUGE-1. High Recall is expected when the LLM gives "
+            "verbose answers. These are diagnostic signals, not primary quality indicators."
+        )
+        c6, c7, c8 = st.columns(3)
+        c6.metric("Lexical Precision", _pct(t1.get("lexical_precision", t1.get("answer_precision"))))
+        c7.metric("Lexical Recall",    _pct(t1.get("lexical_recall",    t1.get("answer_recall"))))
+        c8.metric("Lexical F1",        _pct(t1.get("lexical_f1",        t1.get("answer_f1"))))
+        rto = t1.get("retrieval_token_overlap", t1.get("context_relevance"))
+        st.metric("Retrieval Token Overlap", _pct(rto), help="Diagnostic only \u2014 not 'retrieval accuracy'")
 
     st.markdown("---")
 
-    # ── Per-question breakdown ────────────────────────────────────────────
-    with st.expander("Per-Question Breakdown", expanded=False):
-        per_q = report.get("per_question_results", [])
-        if per_q:
+    # ── Per-Query Inspection ──────────────────────────────────────────────
+    per_q = report.get("per_question_results", [])
+    if per_q:
+        with st.expander(f"Per-Query Inspection ({len(per_q)} questions)", expanded=False):
+            st.caption(
+                "Inspect retrieved context, generated answers, and metric scores per question. "
+                "Useful for demonstrating evaluation methodology in technical interviews."
+            )
             rows = []
             for r in per_q:
+                lf1 = r.get("lexical_f1") or r.get("f1") or {}
                 rows.append({
-                    "ID":          r["id"],
-                    "Precision":   f"{r['f1']['precision']:.2f}",
-                    "Recall":      f"{r['f1']['recall']:.2f}",
-                    "F1":          f"{r['f1']['f1']:.2f}",
-                    "Key Facts":   f"{r['key_fact_recall']:.2f}",
-                    "Ctx Rel":     f"{r['context_relevance']:.2f}",
-                    "LLM Error":   "✗" if r.get("llm_error") else "✓",
-                    "Question":    r["question"][:60],
+                    "ID":        r["id"],
+                    "Diff":      r.get("difficulty", "?"),
+                    "KFR":       f"{r.get('key_fact_recall', 0):.2f}",
+                    "RHit":      "Y" if r.get("retrieval_recall_hit") else "N",
+                    "Faith":     _val(r.get("faithfulness")),
+                    "AnswRel":   _val(r.get("answer_relevancy")),
+                    "CtxRec":    _val(r.get("context_recall")),
+                    "LexF1":     f"{lf1.get('f1', 0):.2f}",
+                    "Status":    "FAIL" if r.get("llm_error") else "OK",
+                    "Question":  r["question"][:55],
                 })
-            import pandas as pd
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
-        else:
-            st.caption("No per-question data found.")
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.markdown("---")
+            for r in per_q:
+                with st.expander(
+                    f"{r['id']} ({r.get('difficulty','?')}) \u2014 {r['question'][:60]}",
+                    expanded=False,
+                ):
+                    col_q, col_a = st.columns(2)
+                    with col_q:
+                        st.markdown("**Question**")
+                        st.write(r["question"])
+                        st.markdown("**Ground Truth**")
+                        st.write(r["ground_truth"])
+                        st.markdown("**Reference Section**")
+                        st.code(r.get("reference_section", "\u2014"))
+                    with col_a:
+                        st.markdown("**Generated Answer**")
+                        if r.get("llm_error"):
+                            st.error(f"LLM failed: {r['llm_error']}")
+                        elif r.get("answer"):
+                            st.write(r["answer"])
+                        else:
+                            st.warning("No answer generated")
 
-    # ── Metric methodology note ───────────────────────────────────────────
+                    st.markdown("**Retrieved Contexts (top 3)**")
+                    ctxs = r.get("retrieved_contexts", [])
+                    if ctxs:
+                        for ci, ctx in enumerate(ctxs[:3], 1):
+                            st.text_area(
+                                f"Chunk {ci}",
+                                value=ctx[:400],
+                                height=80,
+                                disabled=True,
+                                key=f"ctx_{r['id']}_{ci}",
+                            )
+                    else:
+                        st.caption("No contexts captured in this artifact version")
+
+                    st.markdown("**Scores**")
+                    lf1 = r.get("lexical_f1") or r.get("f1") or {}
+                    mc  = st.columns(5)
+                    mc[0].metric("Key Facts",  f"{r.get('key_fact_recall', 0):.2f}")
+                    mc[1].metric("RHit",       "Y" if r.get("retrieval_recall_hit") else "N")
+                    mc[2].metric("Faithfulness", _val(r.get("faithfulness")))
+                    mc[3].metric("Ans Rel",     _val(r.get("answer_relevancy")))
+                    mc[4].metric("Lex F1",      f"{lf1.get('f1', 0):.2f}")
+
+    # ── Methodology ───────────────────────────────────────────────────────
     with st.expander("Metric Methodology", expanded=False):
         methodology = report.get("metric_methodology", {})
-        for metric, desc in methodology.items():
-            st.markdown(f"**{metric}**: {desc}")
+        if methodology:
+            for metric, desc in methodology.items():
+                st.markdown(f"**`{metric}`** \u2014 {desc}")
+        else:
+            st.caption("No methodology documentation in this artifact.")
 
 
 # Entry Point

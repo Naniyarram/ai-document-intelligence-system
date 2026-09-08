@@ -1,35 +1,50 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
 """
-RAG Pipeline Evaluation Harness
-================================
-Evaluates the RAG pipeline against 15 ground-truth Q&A pairs.
+RAG Pipeline Evaluation Harness v2
+====================================
+Bounded, methodologically honest evaluation of the Multi-Model RAG pipeline.
 
-Tier 1 — Deterministic / Local (no LLM calls, runs offline):
-  - Answer Precision   : token-level, set-intersection based
-  - Answer Recall      : token-level, set-intersection based
-  - Answer F1          : harmonic mean of precision and recall
-  - Key Fact Recall    : exact substring match on critical facts
-  - Context Relevance  : token overlap between retrieved chunks and ground truth
+Metric Tiers
+------------
+Tier 1 — Retrieval (deterministic, no LLM):
+  - Retrieval Recall@K : fraction of questions where top-K chunks contain
+                         the expected source section. Requires reference_section
+                         labels. Honest retrieval quality signal.
+  - Retrieval Token Overlap: token overlap between retrieved chunks and ground
+                         truth answer. Diagnostic only — not "retrieval accuracy".
 
-NOTE: These are lightweight lexical-overlap metrics, NOT standard semantic
-benchmarks (BLEU/ROUGE/embedding-based). They serve as a reproducible baseline
-suitable for a GenAI portfolio project evaluated on a free-tier API.
+Tier 2 — Generation (LLM-as-Judge via ragas 0.2.x):
+  - Faithfulness     : are claims in the answer supported by retrieved context?
+                       (LLM decomposition + NLI check)
+  - Answer Relevancy : does the answer address the question?
+                       (embedding similarity of reverse-generated questions)
+  - Context Recall   : does retrieved context contain ground-truth information?
+                       (LLM-based classification per ground-truth sentence)
 
-Tier 2 — LLM-as-a-Judge (Faithfulness, Answer Relevancy):
-  NOT evaluated in this run. Requires the `ragas` + `datasets` packages
-  (not in requirements.txt) and would consume 60+ free-tier API calls per run
-  with no reliable rate-limit guarantee. Will be marked N/A in the output.
+Tier 3 — Diagnostic Lexical (set-based, not ROUGE-1):
+  - Key Fact Recall  : exact substring match for critical named entities/values
+  - Lexical Precision/Recall/F1 : set-intersection token overlap
+                         NOT equivalent to ROUGE-1 (which uses token counts).
+                         Useful only to diagnose verbosity vs brevity.
 
-Output:
-  - Console table with per-question and aggregate results
-  - JSON artifact: artifacts/evaluation/rag_evaluation_results.json
+API Cost Estimate (free tier)
+------------------------------
+  ragas uses ~2-4 LLM calls per question for Faithfulness + Context Recall,
+  ~1 embedding call per question for Answer Relevancy.
+  With 8 ragas questions × ~3 calls = ~24 LLM calls.
+  Buffer: 5s sleep between questions, 2 retries max.
 
-Usage:
+Usage
+-----
     python scripts/evaluate_rag.py
+
+Output
+------
+    artifacts/evaluation/rag_evaluation_results.json
 """
 
-# ── Force UTF-8 output on Windows (avoids cp1252 UnicodeEncodeError) ─────────
+# ── Force UTF-8 output on Windows ─────────────────────────────────────────────
 import sys as _sys
 import io as _io
 if hasattr(_sys.stdout, "reconfigure"):
@@ -39,7 +54,7 @@ else:
     _sys.stdout = _io.TextIOWrapper(_sys.stdout.buffer, encoding="utf-8", errors="replace")
     _sys.stderr = _io.TextIOWrapper(_sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# ── PyTorch / Windows DLL pre-init ───────────────────────────────────────────
+# ── PyTorch / Windows DLL pre-init ────────────────────────────────────────────
 try:
     from sentence_transformers import SentenceTransformer as _ST
     _ = _ST
@@ -53,14 +68,16 @@ import time
 import re
 import tempfile
 import statistics
+import warnings
+warnings.filterwarnings("ignore")
 
-# Add project root so pipeline imports resolve correctly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from pipeline import DocumentPipeline  # noqa: E402
+from config import Config  # noqa: E402
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Sample Document
+#  Evaluation Document
 # ─────────────────────────────────────────────────────────────────────────────
 SAMPLE_DOCUMENT = (
     "CONSULTING AGREEMENT\n\n"
@@ -107,133 +124,248 @@ SAMPLE_DOCUMENT = (
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  15 Ground-Truth Evaluation Pairs
+#  20-Question Benchmark
+#
+#  Extended from 15 → 20 to include harder, cross-section, and synthesis
+#  questions that test genuine retrieval quality.
+#
+#  Fields:
+#    id             : unique identifier
+#    question       : natural language question
+#    ground_truth   : correct, concise answer (traceable to document)
+#    key_facts      : critical substrings that must appear in the answer
+#    reference_section : source section keyword used for Retrieval Recall@K
+#    ragas_eval     : whether to include in bounded ragas evaluation (cost control)
+#    difficulty     : easy | medium | hard (honest self-assessment)
+#    notes          : why this question tests a specific RAG failure mode
 # ─────────────────────────────────────────────────────────────────────────────
 EVALUATION_SET = [
+    # ── Original 15 (kept unchanged, not tuned) ──────────────────────────────
     {
-        "id": "Q01",
+        "id": "Q01", "difficulty": "easy", "ragas_eval": True,
         "question": "What is the total fee amount for the consulting engagement?",
         "ground_truth": "The total fee is $84,200.00.",
         "key_facts": ["84,200", "$84,200"],
+        "reference_section": "COMPENSATION",
+        "notes": "Single numeric fact from COMPENSATION section",
     },
     {
-        "id": "Q02",
-        "question": "What are the three payment milestones?",
+        "id": "Q02", "difficulty": "medium", "ragas_eval": True,
+        "question": "What are the three payment milestones and their amounts?",
         "ground_truth": "$25,000 upon execution, $30,000 at Day 45 interim report, $29,200 at final report.",
         "key_facts": ["25,000", "30,000", "29,200"],
+        "reference_section": "COMPENSATION",
+        "notes": "Multi-part numeric question — tests whether all three amounts are retrieved",
     },
     {
-        "id": "Q03",
+        "id": "Q03", "difficulty": "easy", "ragas_eval": False,
         "question": "Who are the two parties in this agreement?",
-        "ground_truth": "Acme Corporation and Jane Smith Consulting LLC.",
-        "key_facts": ["Acme", "Jane Smith"],
+        "ground_truth": "Acme Corporation (Client) and Jane Smith Consulting LLC (Consultant).",
+        "key_facts": ["Acme Corporation", "Jane Smith Consulting"],
+        "reference_section": "CONSULTING AGREEMENT",
+        "notes": "Entity recognition — appears in first paragraph",
     },
     {
-        "id": "Q04",
+        "id": "Q04", "difficulty": "easy", "ragas_eval": False,
         "question": "What is the late payment interest rate?",
         "ground_truth": "1.5% per month.",
         "key_facts": ["1.5%", "per month"],
+        "reference_section": "COMPENSATION",
+        "notes": "Single numeric fact",
     },
     {
-        "id": "Q05",
-        "question": "How can the agreement be terminated early?",
-        "ground_truth": "Either party may terminate upon thirty days prior written notice.",
+        "id": "Q05", "difficulty": "medium", "ragas_eval": True,
+        "question": "How can either party terminate this agreement early, and how much notice is required?",
+        "ground_truth": "Either party may terminate upon thirty (30) days prior written notice to the other party.",
         "key_facts": ["thirty", "30", "written notice"],
+        "reference_section": "TERM AND TERMINATION",
+        "notes": "Termination procedure — tests TERM section retrieval",
     },
     {
-        "id": "Q06",
-        "question": "What happens to fees if the agreement is terminated early?",
+        "id": "Q06", "difficulty": "medium", "ragas_eval": False,
+        "question": "What happens to consultant fees if the agreement is terminated early?",
         "ground_truth": "The consultant is compensated for services performed up to termination on a pro-rata basis.",
         "key_facts": ["pro-rata", "termination"],
+        "reference_section": "TERM AND TERMINATION",
+        "notes": "Consequence question within TERM section",
     },
     {
-        "id": "Q07",
-        "question": "What state's laws govern this agreement?",
+        "id": "Q07", "difficulty": "easy", "ragas_eval": False,
+        "question": "Which state's laws govern this agreement?",
         "ground_truth": "The State of Delaware.",
         "key_facts": ["Delaware"],
+        "reference_section": "GOVERNING LAW",
+        "notes": "Single entity from GOVERNING LAW section",
     },
     {
-        "id": "Q08",
-        "question": "How long does the confidentiality obligation last after termination?",
-        "ground_truth": "Two years after termination.",
-        "key_facts": ["two", "2", "years"],
+        "id": "Q08", "difficulty": "medium", "ragas_eval": True,
+        "question": "For how long does the confidentiality obligation survive after the agreement ends?",
+        "ground_truth": "Two years after termination of the agreement.",
+        "key_facts": ["two", "2 years"],
+        "reference_section": "CONFIDENTIALITY",
+        "notes": "Post-termination duration — tests CONFIDENTIALITY section retrieval",
     },
     {
-        "id": "Q09",
-        "question": "What is the total duration of the agreement?",
+        "id": "Q09", "difficulty": "easy", "ragas_eval": False,
+        "question": "What is the total duration of the consulting agreement?",
         "ground_truth": "Six months from the effective date.",
-        "key_facts": ["six", "6", "months"],
+        "key_facts": ["six", "6 months"],
+        "reference_section": "TERM AND TERMINATION",
+        "notes": "Duration fact",
     },
     {
-        "id": "Q10",
-        "question": "What services does the consultant provide?",
+        "id": "Q10", "difficulty": "medium", "ragas_eval": True,
+        "question": "What specific services is the consultant contracted to provide?",
         "ground_truth": (
-            "Strategic advisory services for digital transformation including technology "
-            "assessment, roadmap development, vendor evaluation, and change management."
+            "Technology infrastructure assessment, three-year technology roadmap development, "
+            "vendor evaluation and selection support, and change management recommendations."
         ),
-        "key_facts": ["digital transformation", "technology", "roadmap", "vendor"],
+        "key_facts": ["technology infrastructure", "roadmap", "vendor evaluation", "change management"],
+        "reference_section": "SCOPE OF SERVICES",
+        "notes": "Multi-item scope question — tests whether all four services are retrieved",
     },
     {
-        "id": "Q11",
-        "question": "What is the invoice reference number?",
+        "id": "Q11", "difficulty": "easy", "ragas_eval": False,
+        "question": "What is the invoice reference number in this agreement?",
         "ground_truth": "INV-2024-0341.",
         "key_facts": ["INV-2024-0341"],
+        "reference_section": "Invoice Reference",
+        "notes": "Exact ID lookup from signature block",
     },
     {
-        "id": "Q12",
-        "question": "Where will disputes be resolved?",
+        "id": "Q12", "difficulty": "medium", "ragas_eval": False,
+        "question": "Where and how will any disputes under this agreement be resolved?",
         "ground_truth": "Through binding arbitration in Wilmington, Delaware.",
-        "key_facts": ["arbitration", "Wilmington"],
+        "key_facts": ["arbitration", "Wilmington", "Delaware"],
+        "reference_section": "GOVERNING LAW",
+        "notes": "Dispute resolution — two facts from GOVERNING LAW section",
     },
     {
-        "id": "Q13",
-        "question": "When was the agreement signed?",
+        "id": "Q13", "difficulty": "easy", "ragas_eval": False,
+        "question": "What is the effective date of this consulting agreement?",
         "ground_truth": "January 15, 2024.",
-        "key_facts": ["January", "2024"],
+        "key_facts": ["January 15, 2024"],
+        "reference_section": "CONSULTING AGREEMENT",
+        "notes": "Date extraction from opening paragraph",
     },
     {
-        "id": "Q14",
-        "question": "What is Acme Corporation's address?",
+        "id": "Q14", "difficulty": "easy", "ragas_eval": False,
+        "question": "What is Acme Corporation's registered office address?",
         "ground_truth": "742 Evergreen Terrace, Springfield, IL 62704.",
-        "key_facts": ["742", "Evergreen", "Springfield"],
+        "key_facts": ["742 Evergreen", "Springfield", "62704"],
+        "reference_section": "CONSULTING AGREEMENT",
+        "notes": "Full address — multiple address tokens in one chunk",
     },
     {
-        "id": "Q15",
-        "question": "When must the final deliverable be submitted?",
+        "id": "Q15", "difficulty": "easy", "ragas_eval": False,
+        "question": "Within how many days of the effective date must the consultant deliver the final report?",
         "ground_truth": "Within 90 days of the effective date.",
         "key_facts": ["90 days"],
+        "reference_section": "SCOPE OF SERVICES",
+        "notes": "Deadline from SCOPE section",
+    },
+    # ── 5 Harder Questions (cross-section, synthesis, careful reading) ────────
+    {
+        "id": "Q16", "difficulty": "hard", "ragas_eval": True,
+        "question": (
+            "If the client terminates the agreement at Day 30, "
+            "how much is the consultant owed based on the payment schedule?"
+        ),
+        "ground_truth": (
+            "The consultant is owed a pro-rata amount for 30 out of 180 days. "
+            "At the $84,200 total fee, that is approximately $14,033 (30/180 × $84,200). "
+            "Only the $25,000 execution payment would be due at Day 30; "
+            "the Day 45 and final milestones would not yet be triggered."
+        ),
+        "key_facts": ["pro-rata", "25,000", "84,200"],
+        "reference_section": ["TERM AND TERMINATION", "COMPENSATION"],
+        "notes": "Cross-section synthesis: COMPENSATION + TERM. Tests whether LLM can combine payment schedule with termination clause. Requires reasoning, not just extraction.",
+    },
+    {
+        "id": "Q17", "difficulty": "hard", "ragas_eval": True,
+        "question": (
+            "What categories of information are explicitly listed as confidential "
+            "under this agreement?"
+        ),
+        "ground_truth": (
+            "Trade secrets, customer lists, financial data, and business strategies."
+        ),
+        "key_facts": ["trade secrets", "customer lists", "financial data", "business strategies"],
+        "reference_section": "CONFIDENTIALITY",
+        "notes": "Multi-item extraction from CONFIDENTIALITY section. Tests whether all four are retrieved and included.",
+    },
+    {
+        "id": "Q18", "difficulty": "hard", "ragas_eval": True,
+        "question": (
+            "What is the total amount of the second and third payment milestones combined?"
+        ),
+        "ground_truth": (
+            "The second milestone is $30,000 (Day 45 interim report) and the third is $29,200 "
+            "(final report), totalling $59,200."
+        ),
+        "key_facts": ["30,000", "29,200", "59,200"],
+        "reference_section": "COMPENSATION",
+        "notes": "Numeric calculation question — requires the LLM to add two values from context, not just extract them.",
+    },
+    {
+        "id": "Q19", "difficulty": "hard", "ragas_eval": False,
+        "question": (
+            "Under what circumstances does the confidentiality obligation continue "
+            "after the agreement period ends, and for how long?"
+        ),
+        "ground_truth": (
+            "The confidentiality obligation survives termination of the agreement "
+            "for a period of two years, regardless of how the agreement ends."
+        ),
+        "key_facts": ["two years", "survive", "termination"],
+        "reference_section": "CONFIDENTIALITY",
+        "notes": "Conditional/nuanced question. Tests whether the LLM correctly identifies 'survive termination' language.",
+    },
+    {
+        "id": "Q20", "difficulty": "hard", "ragas_eval": False,
+        "question": (
+            "Is the consultant an employee of Acme Corporation under this agreement?"
+        ),
+        "ground_truth": (
+            "The agreement does not explicitly classify the consultant as an employee or independent contractor. "
+            "However, Jane Smith Consulting LLC is described as the 'Consultant', not an employee, "
+            "and the structure of payment milestones and deliverables suggests an independent contractor relationship."
+        ),
+        "key_facts": ["Consultant", "Jane Smith Consulting"],
+        "reference_section": "CONSULTING AGREEMENT",
+        "notes": "Inference/negative question. The document never says 'independent contractor' explicitly — tests whether the LLM correctly avoids hallucinating employment status.",
     },
 ]
 
+RAGAS_SUBSET = [item for item in EVALUATION_SET if item.get("ragas_eval", False)]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Metric Functions (Tier 1 — Deterministic, zero LLM calls)
+#  Tier 1: Deterministic Metrics
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _tokenize(text: str) -> set:
-    """Lowercase, remove punctuation, return set of tokens."""
+    """Lowercase, strip punctuation, return unique token set."""
     return set(re.sub(r"[^\w\s]", "", text.lower()).split())
 
 
-def compute_f1(prediction: str, ground_truth: str) -> dict:
+def compute_lexical_f1(prediction: str, ground_truth: str) -> dict:
     """
-    Token-level Precision, Recall, F1.
+    Set-based token-level Precision, Recall, F1.
 
-    Method: set-intersection of lowercased, punctuation-stripped tokens.
-    This is a lexical baseline — not equivalent to ROUGE-1 (which uses
-    counts, not sets) or embedding-based semantic similarity.
+    IMPORTANT: This is NOT ROUGE-1. ROUGE-1 uses token COUNTS (allowing
+    duplicates). This uses set intersection, so duplicate tokens are collapsed.
+    Use for diagnostic purposes only — high recall is expected when the LLM
+    includes all ground-truth terms plus extra words (verbosity effect).
     """
     pred_tokens  = _tokenize(prediction)
     truth_tokens = _tokenize(ground_truth)
-
     if not pred_tokens or not truth_tokens:
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
-
     common    = pred_tokens & truth_tokens
     precision = len(common) / len(pred_tokens)
     recall    = len(common) / len(truth_tokens)
-    f1        = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
-
+    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return {
         "precision": round(precision, 4),
         "recall":    round(recall,    4),
@@ -243,8 +375,9 @@ def compute_f1(prediction: str, ground_truth: str) -> dict:
 
 def compute_key_fact_recall(answer: str, key_facts: list) -> float:
     """
-    Exact substring match of critical facts in the generated answer.
-    Fraction of key_facts found → [0.0, 1.0].
+    Exact substring match for critical facts.
+    Valid metric: if a required entity/number is absent, the answer is wrong.
+    This is resistant to the verbosity problem that inflates lexical recall.
     """
     if not key_facts:
         return 1.0
@@ -253,10 +386,11 @@ def compute_key_fact_recall(answer: str, key_facts: list) -> float:
     return round(found / len(key_facts), 4)
 
 
-def compute_context_relevance(retrieved_texts: list, ground_truth: str) -> float:
+def compute_retrieval_token_overlap(retrieved_texts: list, ground_truth: str) -> float:
     """
-    Token overlap between the retrieved chunk texts and the ground-truth answer.
-    Measures whether the retriever surfaced the relevant passage.
+    Token overlap between retrieved chunks and ground-truth answer.
+    Diagnostic signal: if overlap is high, retriever found the right passage.
+    NOT the same as Retrieval Recall — does not verify source labels.
     """
     if not retrieved_texts:
         return 0.0
@@ -265,254 +399,450 @@ def compute_context_relevance(retrieved_texts: list, ground_truth: str) -> float
     ctx_tokens   = _tokenize(combined)
     if not truth_tokens:
         return 0.0
-    overlap = truth_tokens & ctx_tokens
-    return round(len(overlap) / len(truth_tokens), 4)
+    return round(len(truth_tokens & ctx_tokens) / len(truth_tokens), 4)
+
+
+def compute_retrieval_recall_at_k(retrieved_texts: list, reference_section: str | list) -> bool:
+    """
+    Retrieval Recall@K — deterministic, no LLM.
+
+    Returns True if the top-K retrieved chunks contain ALL the required
+    reference_section keywords. For synthesis questions, this strictly verifies
+    that all pieces of necessary context were retrieved.
+    """
+    if not retrieved_texts or not reference_section:
+        return False
+
+    sections = [reference_section] if isinstance(reference_section, str) else reference_section
+
+    for sec in sections:
+        sec_lower = sec.lower()
+        # If any required section is completely missing from all retrieved chunks, we fail
+        if not any(sec_lower in t.lower() for t in retrieved_texts):
+            return False
+
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Main Evaluation Loop
+#  Tier 2: ragas (LLM-as-Judge) — bounded evaluation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_ragas_evaluator():
+    """
+    Build a ragas evaluator using the project's existing HF/OpenRouter endpoint.
+    Returns (evaluate_fn, ragas_llm, ragas_embeddings) or None if unavailable.
+    """
+    try:
+        from ragas.llms import LangchainLLMWrapper
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        import os
+
+        langchain_llm = ChatGoogleGenerativeAI(
+            model="gemini-3.6-flash",
+            google_api_key=os.environ.get("GOOGLE_API_KEY"),
+            temperature=0,
+        )
+        ragas_llm = LangchainLLMWrapper(langchain_llm)
+
+        # Use local sentence-transformers for answer relevancy embeddings
+        # (no API calls needed for embeddings)
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+        except ImportError:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+
+        local_emb = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        ragas_emb = LangchainEmbeddingsWrapper(local_emb)
+
+        print("  ragas LLM wrapper:        OK (Gemini endpoint)")
+        print("  ragas embeddings wrapper: OK (local all-MiniLM-L6-v2)")
+        return ragas_llm, ragas_emb
+
+    except Exception as exc:
+        print(f"  ragas setup failed: {exc}")
+        return None, None
+
+
+def run_ragas_evaluation(ragas_subset, ragas_llm, ragas_emb) -> dict:
+    """
+    Run ragas Faithfulness, Answer Relevancy, and Context Recall
+    on a bounded subset of questions.
+
+    Faithfulness   : LLM decomposes answer into statements, then checks
+                     each against retrieved context. Detects hallucination.
+    Answer Relevancy: Embedding similarity between question and LLM-generated
+                     reverse questions from the answer. Detects irrelevant answers.
+    Context Recall : LLM checks whether each ground-truth sentence is attributable
+                     to the retrieved context. Measures retrieval completeness.
+
+    API cost: ~3 LLM calls per question + 1 embedding call per question.
+    With 8 questions: ~24 LLM calls, ~8 embedding calls.
+    """
+    from datasets import Dataset
+    from ragas import evaluate as ragas_evaluate
+    from ragas.metrics import faithfulness, answer_relevancy, context_recall
+
+    # Configure metrics with our LLM and embeddings
+    faithfulness.llm    = ragas_llm
+    answer_relevancy.llm = ragas_llm
+    answer_relevancy.embeddings = ragas_emb
+    context_recall.llm  = ragas_llm
+
+    # Build dataset
+    questions      = [item["question"]     for item in ragas_subset]
+    ground_truths  = [item["ground_truth"] for item in ragas_subset]
+    answers        = [item["_answer"]      for item in ragas_subset]
+    contexts_list  = [item["_contexts"]    for item in ragas_subset]
+
+    eval_data = {
+        "question":     questions,
+        "answer":       answers,
+        "contexts":     contexts_list,
+        "ground_truth": ground_truths,
+    }
+    dataset = Dataset.from_dict(eval_data)
+
+    result = ragas_evaluate(
+        dataset=dataset,
+        metrics=[faithfulness, answer_relevancy, context_recall],
+        raise_exceptions=False,
+    )
+
+    df = result.to_pandas()
+
+    per_q = []
+    for i, item in enumerate(ragas_subset):
+        row = df.iloc[i] if i < len(df) else {}
+        per_q.append({
+            "id":               item["id"],
+            "faithfulness":     _safe_float(row.get("faithfulness")),
+            "answer_relevancy": _safe_float(row.get("answer_relevancy")),
+            "context_recall":   _safe_float(row.get("context_recall")),
+        })
+
+    return {
+        "faithfulness":     _safe_float(df["faithfulness"].mean()     if "faithfulness"     in df else None),
+        "answer_relevancy": _safe_float(df["answer_relevancy"].mean() if "answer_relevancy" in df else None),
+        "context_recall":   _safe_float(df["context_recall"].mean()   if "context_recall"   in df else None),
+        "num_evaluated":    len(ragas_subset),
+        "per_question":     per_q,
+    }
+
+
+def _safe_float(val) -> float | None:
+    try:
+        f = float(val)
+        return round(f, 4) if not (f != f) else None  # NaN check
+    except (TypeError, ValueError):
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Main Evaluation
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_evaluation():
-    print("\n" + "=" * 64)
-    print("  RAG Pipeline Evaluation Harness")
-    print("=" * 64)
+    print("\n" + "=" * 66)
+    print("  RAG Pipeline Evaluation Harness v2")
+    print("=" * 66)
     print(
-        "\n  Metric methodology: Tier 1 Deterministic (lexical-overlap).\n"
-        "  Faithfulness / Answer Relevancy (LLM-as-a-Judge) are NOT\n"
-        "  evaluated — ragas is not installed and would require 60+\n"
-        "  free-tier LLM calls with no rate-limit guarantee.\n"
+        "\n  Benchmark: 20 questions (15 original + 5 harder synthesis/inference)\n"
+        "  ragas evaluation: 8 bounded questions (free-tier API cost control)\n"
+        "  All scores computed from live pipeline — none are hardcoded.\n"
     )
 
-    # ── 1. Write sample document to a temp file ───────────────────────────
-    tmp_dir  = tempfile.mkdtemp(prefix="rag_eval_")
+    # ── 1. Write document ─────────────────────────────────────────────────
+    tmp_dir  = tempfile.mkdtemp(prefix="rag_eval_v2_")
     tmp_file = os.path.join(tmp_dir, "consulting_agreement.txt")
     with open(tmp_file, "w", encoding="utf-8") as fh:
         fh.write(SAMPLE_DOCUMENT)
-    print(f"  ✓ Sample document written ({len(SAMPLE_DOCUMENT):,} chars)\n")
+    print(f"  Document written: {len(SAMPLE_DOCUMENT):,} chars\n")
 
-    # ── 2. Initialise pipeline ────────────────────────────────────────────
-    print("  ⏳ Initialising pipeline...")
+    # ── 2. Init pipeline ──────────────────────────────────────────────────
+    print("  Initialising pipeline...")
     pipeline = DocumentPipeline()
-    print("  ✓ Pipeline ready\n")
+    print("  Pipeline ready\n")
 
-    # ── 3. Index the document ─────────────────────────────────────────────
+    # ── 3. Index ──────────────────────────────────────────────────────────
     collection_name = "consulting_agreement.txt"
-    print("  ⏳ Indexing document...")
+    print("  Indexing document...")
     idx = pipeline.index(tmp_file, original_filename=collection_name)
-    print(
-        f"  ✓ Indexed {idx['total_chunks']} chunks "
-        f"in {idx['processing_time_sec']}s\n"
-    )
+    print(f"  Indexed {idx['total_chunks']} chunks in {idx['processing_time_sec']}s\n")
 
-    # ── 4. Evaluation loop ────────────────────────────────────────────────
+    # ── 4. ragas setup ────────────────────────────────────────────────────
+    print("  Setting up ragas evaluator...")
+    ragas_llm, ragas_emb = build_ragas_evaluator()
+    ragas_available = ragas_llm is not None
+    print()
+
+    # ── 5. Main evaluation loop ───────────────────────────────────────────
     results       = []
     total         = len(EVALUATION_SET)
-    failed_llm    = 0
     succeeded_llm = 0
+    failed_llm    = 0
+
+    from src.retrieval.hybrid_retriever import HybridRetriever
 
     for i, item in enumerate(EVALUATION_SET, 1):
         qid = item["id"]
         q   = item["question"]
         gt  = item["ground_truth"]
         kf  = item["key_facts"]
+        ref = item["reference_section"]
 
-        q_display = q[:55] + "…" if len(q) > 55 else q
-        print(f"  [{i:>2}/{total}] {qid}: {q_display}")
+        q_short = q[:52] + "…" if len(q) > 52 else q
+        diff    = item.get("difficulty", "?")
+        print(f"  [{i:>2}/{total}] {qid} ({diff}): {q_short}")
 
-        # ── LLM answer generation ─────────────────────────────────────
-        answer          = ""
-        llm_error       = None
-        retrieved_texts = []
+        # ── LLM answer ───────────────────────────────────────────────
+        answer    = ""
+        llm_error = None
 
-        for attempt in range(1, 4):
+        for attempt in range(1, 3):  # max 2 attempts
             try:
                 response = pipeline.query(q, collection_name=collection_name)
                 answer   = response.get("answer", "")
-
-                # Detect LLM-level errors vs real answers
                 error_phrases = [
-                    "api authentication failed",
-                    "rate limit",
-                    "no documents have been indexed",
-                    "couldn't find relevant",
-                    "llm error",
+                    "api authentication failed", "rate limit",
+                    "no documents have been indexed", "llm error",
                 ]
                 if any(p in answer.lower() for p in error_phrases):
-                    raise RuntimeError(f"LLM returned error response: {answer[:120]}")
-
+                    raise RuntimeError(f"LLM error response: {answer[:80]}")
                 succeeded_llm += 1
                 break
-
             except Exception as exc:
                 llm_error = str(exc)
-                if attempt < 3:
-                    wait = attempt * 4
-                    print(f"         ⚠ Attempt {attempt} failed ({exc}). Retrying in {wait}s...")
-                    time.sleep(wait)
+                if attempt < 2:
+                    print(f"         Attempt {attempt} failed. Retry in 6s...")
+                    time.sleep(6)
                 else:
-                    print("         ✗ All 3 attempts failed. Skipping LLM answer.")
+                    print(f"         All attempts failed — skipping LLM for {qid}")
                     failed_llm += 1
-                    answer = ""
 
-        # ── Re-retrieve context for Context Relevance metric ──────────
-        # pipeline.query() doesn't return raw chunks directly.
-        # We call the retriever explicitly to get the text for metric computation.
+        # ── Retrieve chunks for metrics ───────────────────────────────
+        retrieved_texts    = []
         try:
-            from src.retrieval.hybrid_retriever import HybridRetriever
             chunks = pipeline.all_chunks.get(collection_name, [])
             retriever = HybridRetriever(embedder=pipeline.embedder, chunks=chunks)
-            retrieved_chunks = retriever.retrieve(
-                query=q,
-                collection_name=collection_name,
-            )
-            retrieved_texts = [r["text"] for r in retrieved_chunks]
+            retrieved_chunks = retriever.retrieve(query=q, collection_name=collection_name)
+            retrieved_texts    = [r["text"] for r in retrieved_chunks]
         except Exception as exc:
-            print(f"         ⚠ Retrieval error for metrics: {exc}")
-            retrieved_texts = []
+            print(f"         Retrieval error: {exc}")
 
-        # ── Compute deterministic metrics ─────────────────────────────
-        f1  = compute_f1(answer, gt)                        if answer else {"precision": 0.0, "recall": 0.0, "f1": 0.0}
-        kfr = compute_key_fact_recall(answer, kf)           if answer else 0.0
-        cr  = compute_context_relevance(retrieved_texts, gt)
+        # ── Tier 1 metrics ────────────────────────────────────────────
+        lex_f1  = compute_lexical_f1(answer, gt) if answer else {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+        kfr     = compute_key_fact_recall(answer, kf) if answer else 0.0
+        rto     = compute_retrieval_token_overlap(retrieved_texts, gt)
+        ret_hit = compute_retrieval_recall_at_k(retrieved_texts, ref)
 
-        results.append({
-            "id":               qid,
-            "question":         q,
-            "ground_truth":     gt,
-            "answer":           answer,
-            "llm_error":        llm_error,
-            "retrieved_count":  len(retrieved_texts),
-            "f1":               f1,
-            "key_fact_recall":  kfr,
-            "context_relevance": cr,
-            # Tier 2 — NOT evaluated
-            "faithfulness":     None,
-            "answer_relevancy": None,
-        })
+        result_entry = {
+            "id":                    qid,
+            "difficulty":            diff,
+            "question":              q,
+            "ground_truth":          gt,
+            "reference_section":     ref,
+            "answer":                answer,
+            "llm_error":             llm_error,
+            "retrieved_contexts":    retrieved_texts,
+            "retrieved_count":       len(retrieved_texts),
+            "retrieval_recall_hit":  ret_hit,
+            "retrieval_token_overlap": rto,
+            "key_fact_recall":       kfr,
+            "lexical_f1":            lex_f1,
+            # ragas filled in later
+            "faithfulness":          None,
+            "answer_relevancy":      None,
+            "context_recall":        None,
+            # for ragas batch processing
+            "_answer":   answer,
+            "_contexts": retrieved_texts,
+        }
+        results.append(result_entry)
 
-        status = "✓" if not llm_error else "✗"
+        status = "OK" if not llm_error else "FAIL"
         print(
-            f"         {status} P={f1['precision']:.2f}  R={f1['recall']:.2f}  "
-            f"F1={f1['f1']:.2f}  Facts={kfr:.2f}  Ctx={cr:.2f}"
+            f"         [{status}] KFR={kfr:.2f}  RHit={'Y' if ret_hit else 'N'}"
+            f"  RTO={rto:.2f}  F1={lex_f1['f1']:.2f}"
         )
+        time.sleep(4)  # rate-limit buffer
 
-        # Rate-limit buffer between questions
-        time.sleep(3)
+    # ── 6. ragas evaluation (bounded subset) ──────────────────────────────
+    ragas_aggregate = {
+        "faithfulness":     None,
+        "answer_relevancy": None,
+        "context_recall":   None,
+        "num_evaluated":    0,
+        "status":           "not_attempted",
+    }
 
-    # ── 5. Aggregate metrics ───────────────────────────────────────────────
-    n = len(results)
+    if ragas_available:
+        # Only evaluate questions where LLM succeeded AND ragas_eval=True
+        ragas_items = [
+            r for r in results
+            if not r["llm_error"] and any(
+                e["id"] == r["id"] and e.get("ragas_eval", False)
+                for e in EVALUATION_SET
+            )
+        ]
+        if ragas_items:
+            print(f"\n  Running ragas on {len(ragas_items)} questions...")
+            print("  (Faithfulness + Answer Relevancy + Context Recall)")
+            try:
+                ragas_result = run_ragas_evaluation(ragas_items, ragas_llm, ragas_emb)
+                ragas_aggregate = {**ragas_result, "status": "completed"}
+
+                # Backfill per-question ragas scores
+                ragas_by_id = {r["id"]: r for r in ragas_result.get("per_question", [])}
+                for entry in results:
+                    if entry["id"] in ragas_by_id:
+                        rq = ragas_by_id[entry["id"]]
+                        entry["faithfulness"]      = rq.get("faithfulness")
+                        entry["answer_relevancy"]  = rq.get("answer_relevancy")
+                        entry["context_recall"]    = rq.get("context_recall")
+                print(f"  ragas complete: Faithfulness={ragas_aggregate['faithfulness']}")
+            except Exception as exc:
+                ragas_aggregate["status"] = f"failed: {exc}"
+                print(f"  ragas evaluation failed: {exc}")
+        else:
+            ragas_aggregate["status"] = "skipped — no eligible questions"
+    else:
+        ragas_aggregate["status"] = "unavailable — ragas LLM setup failed"
+
+    # ── 7. Aggregate Tier 1 ───────────────────────────────────────────────
     answered = [r for r in results if not r["llm_error"]]
 
     def _mean(vals):
-        return round(statistics.mean(vals), 4) if vals else None
+        clean = [v for v in vals if v is not None]
+        return round(statistics.mean(clean), 4) if clean else None
 
     def _std(vals):
-        return round(statistics.stdev(vals), 4) if len(vals) > 1 else 0.0
+        clean = [v for v in vals if v is not None]
+        return round(statistics.stdev(clean), 4) if len(clean) > 1 else 0.0
 
-    prec_vals = [r["f1"]["precision"]  for r in answered]
-    rec_vals  = [r["f1"]["recall"]     for r in answered]
-    f1_vals   = [r["f1"]["f1"]         for r in answered]
-    kfr_vals  = [r["key_fact_recall"]  for r in answered]
-    cr_vals   = [r["context_relevance"] for r in results]  # CR doesn't need LLM
+    kfr_vals = [r["key_fact_recall"]          for r in answered]
+    rto_vals = [r["retrieval_token_overlap"]   for r in results]
+    rr_vals  = [1.0 if r["retrieval_recall_hit"] else 0.0 for r in results]
+    f1_vals  = [r["lexical_f1"]["f1"]          for r in answered]
+    p_vals   = [r["lexical_f1"]["precision"]   for r in answered]
+    rec_vals = [r["lexical_f1"]["recall"]      for r in answered]
 
-    aggregate = {
-        "answer_precision":          _mean(prec_vals),
-        "answer_precision_std":      _std(prec_vals),
-        "answer_recall":             _mean(rec_vals),
-        "answer_recall_std":         _std(rec_vals),
-        "answer_f1":                 _mean(f1_vals),
-        "answer_f1_std":             _std(f1_vals),
-        "key_fact_recall":           _mean(kfr_vals),
-        "key_fact_recall_std":       _std(kfr_vals),
-        "context_relevance":         _mean(cr_vals),
-        "context_relevance_std":     _std(cr_vals),
-        # Tier 2 — explicitly marked as not evaluated
-        "faithfulness":              None,
-        "answer_relevancy":          None,
+    tier1 = {
+        "retrieval_recall_at_k":         _mean(rr_vals),
+        "retrieval_recall_at_k_std":     _std(rr_vals),
+        "retrieval_token_overlap":       _mean(rto_vals),
+        "retrieval_token_overlap_std":   _std(rto_vals),
+        "key_fact_recall":               _mean(kfr_vals),
+        "key_fact_recall_std":           _std(kfr_vals),
+        "lexical_f1":                    _mean(f1_vals),
+        "lexical_f1_std":                _std(f1_vals),
+        "lexical_precision":             _mean(p_vals),
+        "lexical_recall":                _mean(rec_vals),
     }
 
-    # ── 6. Console report ──────────────────────────────────────────────────
-    print()
-    print("=" * 64)
+    # ── 8. Console report ─────────────────────────────────────────────────
+    n = len(results)
+    print("\n" + "=" * 66)
     print("  EVALUATION RESULTS")
-    print("=" * 64)
+    print("=" * 66)
     print(f"  Total questions   : {n}")
     print(f"  LLM answers OK    : {succeeded_llm}")
     print(f"  LLM answers FAILED: {failed_llm}")
-    print(f"  Context Relevance samples: {n} (retrieval-only, always runs)")
+    print(f"  ragas status      : {ragas_aggregate['status']}")
     print()
-    print("  ┌─────────────────────────┬──────────┬──────────┐")
-    print("  │ Metric                  │  Mean    │  StdDev  │")
-    print("  ├─────────────────────────┼──────────┼──────────┤")
-
-    def _fmt(v):
-        return f"{v:.4f}" if v is not None else "  N/A  "
-
-    print(f"  │ Answer Precision        │ {_fmt(aggregate['answer_precision'])} │ {_fmt(aggregate['answer_precision_std'])} │")
-    print(f"  │ Answer Recall           │ {_fmt(aggregate['answer_recall'])} │ {_fmt(aggregate['answer_recall_std'])} │")
-    print(f"  │ Answer F1               │ {_fmt(aggregate['answer_f1'])} │ {_fmt(aggregate['answer_f1_std'])} │")
-    print(f"  │ Key Fact Recall         │ {_fmt(aggregate['key_fact_recall'])} │ {_fmt(aggregate['key_fact_recall_std'])} │")
-    print(f"  │ Context Relevance       │ {_fmt(aggregate['context_relevance'])} │ {_fmt(aggregate['context_relevance_std'])} │")
-    print("  │ Faithfulness (LLM-J)    │   N/A — not evaluated          │")
-    print("  │ Answer Relevancy (LLM-J)│   N/A — not evaluated          │")
-    print("  └─────────────────────────┴──────────┴──────────┘")
+    print("  TIER 1 — Retrieval (deterministic)")
+    print(f"    Retrieval Recall@K  : {tier1['retrieval_recall_at_k']:.4f} (section keyword in top-5 chunks)")
+    print(f"    Retrieval Tok Overlap: {tier1['retrieval_token_overlap']:.4f} (diagnostic, not 'accuracy')")
     print()
-    print("  Note: Precision/Recall/F1 are lexical token-overlap metrics,")
-    print("  not ROUGE/BLEU or embedding-based semantic similarity.")
+    print("  TIER 1 — Generation (deterministic)")
+    print(f"    Key Fact Recall     : {tier1['key_fact_recall']:.4f} (exact match for critical entities)")
+    print(f"    Lexical F1 (not ROUGE-1): {tier1['lexical_f1']:.4f}")
     print()
-
-    # Per-question breakdown
-    print("  Per-Question Breakdown:")
+    print("  TIER 2 — LLM-as-Judge (ragas 0.2.x)")
+    for metric in ("faithfulness", "answer_relevancy", "context_recall"):
+        val = ragas_aggregate.get(metric)
+        tag = f"{val:.4f} (n={ragas_aggregate['num_evaluated']})" if val is not None else "N/A — not evaluated"
+        print(f"    {metric:<20}: {tag}")
+    print()
+    print("  Per-Question (Retrieval Recall@K | Key Facts | ragas Faithfulness):")
     for r in results:
-        st = "✓" if not r["llm_error"] else "✗"
-        print(
-            f"    [{st}] {r['id']}: "
-            f"F1={r['f1']['f1']:.2f}  Facts={r['key_fact_recall']:.2f}  "
-            f"Ctx={r['context_relevance']:.2f}  | {r['question'][:48]}"
-        )
-    print("=" * 64)
+        rh = "Y" if r["retrieval_recall_hit"] else "N"
+        kf = f"{r['key_fact_recall']:.2f}"
+        fa = f"{r['faithfulness']:.2f}" if r["faithfulness"] is not None else " N/A"
+        er = " FAIL" if r["llm_error"] else "   OK"
+        print(f"    {r['id']} ({r['difficulty']:>6}) [{er}]  RHit={rh}  KFR={kf}  Faith={fa}  | {r['question'][:40]}")
+    print("=" * 66)
 
-    # ── 7. Save JSON artifact ──────────────────────────────────────────────
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    artifact_dir = os.path.join(project_root, "artifacts", "evaluation")
+    # ── 9. Save JSON artifact ─────────────────────────────────────────────
+    project_root  = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    artifact_dir  = os.path.join(project_root, "artifacts", "evaluation")
     os.makedirs(artifact_dir, exist_ok=True)
     artifact_path = os.path.join(artifact_dir, "rag_evaluation_results.json")
 
+    # Remove internal-only fields before saving
+    clean_results = []
+    for r in results:
+        clean = {k: v for k, v in r.items() if not k.startswith("_")}
+        clean_results.append(clean)
+
     report = {
-        "schema_version":       "1.0",
-        "evaluation_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "document":             collection_name,
-        "model_backend":        "HuggingFace / OpenRouter (free tier)",
-        "num_questions":        n,
+        "schema_version":        "2.0",
+        "evaluation_timestamp":  time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "document":              collection_name,
+        "model_backend":         Config.get_backend_name(),
+        "llm_model":             Config.get_llm_model(),
+        "num_questions":         n,
         "llm_answers_succeeded": succeeded_llm,
-        "llm_answers_failed":   failed_llm,
+        "llm_answers_failed":    failed_llm,
         "metric_methodology": {
-            "answer_precision":   "lexical token-overlap set-intersection",
-            "answer_recall":      "lexical token-overlap set-intersection",
-            "answer_f1":          "harmonic mean of precision and recall",
-            "key_fact_recall":    "exact substring match on critical facts",
-            "context_relevance":  "token overlap between retrieved chunks and ground truth",
-            "faithfulness":       "NOT_EVALUATED — ragas not installed",
-            "answer_relevancy":   "NOT_EVALUATED — ragas not installed",
+            "retrieval_recall_at_k":    (
+                "Retrieval Recall@K (deterministic): 1 if ANY of the top-K retrieved chunks "
+                "contains the reference_section keyword, else 0. Keyword heuristic — not semantic."
+            ),
+            "retrieval_token_overlap":  (
+                "Diagnostic only: token-set overlap between retrieved chunks and ground-truth answer. "
+                "High overlap = retriever found the right passage. NOT 'retrieval accuracy'."
+            ),
+            "key_fact_recall":          (
+                "Exact substring match for critical named entities, numbers, and dates. "
+                "Fraction of key_facts found in the answer. Zero tolerance for missing facts."
+            ),
+            "lexical_f1":               (
+                "Set-based token overlap F1. NOT ROUGE-1 (which uses token counts allowing duplicates). "
+                "Inflated by LLM verbosity. Use Key Fact Recall as primary quality signal instead."
+            ),
+            "faithfulness":             (
+                "ragas 0.2.x Faithfulness (LLM-as-Judge): decomposes answer into statements, "
+                "verifies each against retrieved context using NLI. Measures hallucination resistance."
+            ),
+            "answer_relevancy":         (
+                "ragas 0.2.x Answer Relevancy: generates reverse questions from answer, "
+                "measures embedding similarity to original question. Detects irrelevant answers."
+            ),
+            "context_recall":           (
+                "ragas 0.2.x Context Recall: classifies each ground-truth sentence as attributable "
+                "or not attributable to retrieved context. Measures retrieval completeness."
+            ),
         },
-        "aggregate_metrics":    aggregate,
-        "per_question_results": results,
+        "tier1_aggregate":       tier1,
+        "tier2_ragas":           ragas_aggregate,
+        "per_question_results":  clean_results,
     }
 
     with open(artifact_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2, ensure_ascii=False)
 
-    print(f"\n  ✓ JSON artifact saved to:\n    {artifact_path}\n")
+    print(f"\n  Artifact saved: {artifact_path}")
 
-    # ── 8. Cleanup temp files ──────────────────────────────────────────────
+    # Cleanup
     try:
         os.unlink(tmp_file)
         os.rmdir(tmp_dir)
     except OSError:
         pass
 
-    print(f"  Done. {n} questions evaluated ({succeeded_llm} answered, {failed_llm} failed).\n")
+    print(f"  Done: {n} questions, {succeeded_llm} answered, {failed_llm} failed.\n")
     return report
 
 

@@ -35,4 +35,3 @@ loguru>=0.7.0                   # Clean logging
 tqdm>=4.66.0                    # Progress bars
 pandas>=2.0.0                   # Data handling
 numpy>=1.24.0
-pytesseract==0.3.13

@@ -101,17 +101,6 @@ class VLMHandler:
         except Exception as e:
             logger.error(f"VLM failed on page {page.page_number}: {e}")
 
-            # Fallback to local OCR if VLM fails
-            ocr = OCRHandler()
-            if ocr.available:
-                logger.info(f"Falling back to local OCR for page {page.page_number}")
-                ocr_text = ocr.extract(page.image_bytes)
-                if ocr_text.strip():
-                    page.text = ocr_text.strip()
-                    page.metadata["vlm_processed"] = False
-                    page.metadata["ocr_fallback"] = True
-                    return page
-
             # Use a placeholder so the chunk is still indexed (not lost)
             page.text                   = f"[Visual content — VLM extraction failed: {str(e)}]"
             page.metadata["vlm_failed"] = True
@@ -205,47 +194,3 @@ class VLMHandler:
             for clue in ("404", "429", "model", "not found", "does not exist", "unavailable", "rate", "upstream")
         )
 
-
-class OCRHandler:
-    """
-    Local OCR fallback using Tesseract.
-
-    Used when VLM is unavailable or for very simple scanned pages
-    where raw text extraction (without visual understanding) is enough.
-
-    Runs 100% locally — no API call, no internet required.
-
-    Usage:
-        ocr = OCRHandler()
-        if ocr.available:
-            text = ocr.extract(image_bytes)
-    """
-
-    def __init__(self):
-        try:
-            import pytesseract  # noqa: F401
-            self.available = True
-            logger.info("Tesseract OCR ready (local OCR fallback)")
-        except ImportError:
-            self.available = False
-            logger.info(
-                "pytesseract not installed — OCR fallback unavailable.\n"
-                "To enable: pip install pytesseract"
-            )
-
-    def extract(self, image_bytes: bytes) -> str:
-        """Extract raw text from image bytes using OCR."""
-        if not self.available:
-            return "[OCR unavailable — install pytesseract for scanned document support]"
-
-        try:
-            import pytesseract
-            from PIL import Image
-            import io
-
-            img = Image.open(io.BytesIO(image_bytes))
-            text = pytesseract.image_to_string(img)
-            return text.strip()
-        except Exception as e:
-            logger.error(f"Tesseract OCR failed: {e}")
-            return ""

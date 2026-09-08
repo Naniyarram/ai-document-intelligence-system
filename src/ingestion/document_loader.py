@@ -407,23 +407,30 @@ class DocumentLoader:
     # TXT Parser
 
     def _load_txt(self, file_path: str) -> List[DocumentPage]:
-        """Parse plain text files. Split by double newlines into sections."""
+        """Parse plain text files. Split by double newlines and detect section headers."""
         filename = Path(file_path).name
 
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
         # Split on double newlines (natural paragraph breaks)
-        sections = [s.strip() for s in content.split("\n\n") if s.strip()]
+        blocks = [s.strip() for s in content.split("\n\n") if s.strip()]
 
         pages = []
-        for idx, section in enumerate(sections):
+        current_section = ""
+
+        for idx, block in enumerate(blocks):
+            # Simple heuristic for a section title: short, single line, no trailing period
+            if len(block) < 120 and "\n" not in block and not block.endswith('.'):
+                current_section = block
+
             pages.append(DocumentPage(
                 source_file=filename,
                 page_number=idx,
-                text=section,
+                section_title=current_section,
+                text=block,
                 content_type="text",
-                metadata={"source": filename, "section_idx": idx}
+                metadata={"source": filename, "section_idx": idx, "section": current_section}
             ))
 
         return pages

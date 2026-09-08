@@ -17,7 +17,7 @@ from loguru import logger
 
 from config import Config
 from src.ingestion.document_loader import DocumentLoader
-from src.ingestion.vlm_handler import VLMHandler, OCRHandler
+from src.ingestion.vlm_handler import VLMHandler
 from src.chunking.semantic_chunker import SemanticChunker, TextChunk
 from src.embeddings.embedder import Embedder
 from src.retrieval.hybrid_retriever import HybridRetriever
@@ -41,7 +41,7 @@ class DocumentPipeline:
         # Lazy-loaded components — created only when first used
         self._loader    = None
         self._vlm       = None
-        self._ocr       = None
+
         self._chunker   = None
         self._embedder  = None
         self._llm       = None
@@ -71,12 +71,6 @@ class DocumentPipeline:
             except Exception as e:
                 logger.warning(f"VLM unavailable: {e}")
         return self._vlm
-
-    @property
-    def ocr(self):
-        if not self._ocr:
-            self._ocr = OCRHandler()
-        return self._ocr
 
     @property
     def chunker(self):
