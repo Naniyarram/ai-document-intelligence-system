@@ -128,7 +128,7 @@ class LLMHandler:
                 if Config.ENABLE_LOCAL_LLM_FALLBACK
                 else ""
             )
-            if fallback_answer:
+            if fallback_answer and not self._is_invalid_llm_response(fallback_answer):
                 return {
                     "answer": fallback_answer,
                     "sources": self._extract_sources(retrieved_chunks),
@@ -139,11 +139,17 @@ class LLMHandler:
                         retrieved_chunks,
                         used_fallback=True,
                     ),
+                    "is_error": False,
                 }
 
             # Give a helpful error message based on error type
             err = str(e).lower()
-            if "401" in err or "unauthorized" in err or "authentication" in err:
+            if "429" in err or "rate" in err:
+                msg = (
+                    "The LLM provider is currently rate-limited (429 Rate Limit) or unavailable. "
+                    "Retrieval succeeded, but generation could not complete. Please wait a moment and try again."
+                )
+            elif "401" in err or "unauthorized" in err or "authentication" in err:
                 msg = (
                     "API authentication failed. Please check your token in .env:\n"
                     "- HuggingFace token: set HF_API_KEY=hf_your_token\n"
@@ -162,12 +168,16 @@ class LLMHandler:
                     "Please check your internet connection and confirm the API provider is accessible.\n"
                     f"Current backend: {Config.get_backend_name()}"
                 )
-            elif "429" in err or "rate" in err:
-                msg = "Rate limit hit. Wait a few seconds and try again."
             else:
-                msg = f"LLM error: {str(e)}"
+                msg = f"LLM generation unavailable: {str(e)}"
 
-            return {"answer": msg, "sources": [], "context_used": 0}
+            return {
+                "answer": msg,
+                "sources": self._extract_sources(retrieved_chunks),
+                "context_used": len(retrieved_chunks),
+                "is_error": True,
+                "model": self.model,
+            }
 
     def _build_grounded_fallback_answer(
         self,
