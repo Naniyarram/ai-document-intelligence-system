@@ -59,29 +59,34 @@ st.markdown("""
     color: #C8D0E8;
 }
 
-/* Source citation container & pills. */
-.src-container {
+/* Metadata section headers (QUESTION, ANSWER, SOURCES, RETRIEVAL). */
+.meta-heading {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #64748B;
     margin-top: 10px;
     margin-bottom: 4px;
 }
-.src-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #64748B;
-    margin-bottom: 4px;
+
+/* Source citation pills container (flex wrap for clean separation). */
+.src-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+    margin-bottom: 8px;
 }
 .src-pill {
     display: inline-block;
     background: #141824;
     border: 1px solid #232A3E;
     border-radius: 4px;
-    padding: 3px 9px;
+    padding: 3px 10px;
     font-size: 12px;
     font-weight: 500;
     color: #94A3B8;
-    margin: 2px 6px 4px 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -89,7 +94,7 @@ st.markdown("""
 .telemetry-footer {
     font-size: 12px;
     color: #64748B;
-    margin-top: 4px;
+    margin-top: 2px;
     margin-bottom: 12px;
 }
 
@@ -541,21 +546,14 @@ def render_qa():
     else:
         for msg in st.session_state.chat_history:
             if msg["role"] == "user":
-                st.markdown(
-                    f'<div class="msg-user">'
-                    f'<div class="msg-user-bubble">{_html.escape(msg["content"])}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+                st.markdown("<div class='meta-heading'>QUESTION</div>", unsafe_allow_html=True)
+                st.markdown(msg["content"])
             else:
-                body = _html.escape(msg["content"]).replace("\n", "<br>")
-                st.markdown(
-                    f'<div class="msg-asst">'
-                    f'<div class="msg-asst-bubble">{body}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+                st.markdown("<div class='meta-heading'>ANSWER</div>", unsafe_allow_html=True)
+                clean_body = _clean_answer_text(msg["content"])
+                st.markdown(clean_body)
                 _render_response_metadata(msg)
+                st.divider()
 
     st.divider()
 
@@ -624,15 +622,34 @@ def _run(question, mode="qa"):
     })
 
 
+def _clean_answer_text(text: str) -> str:
+    """
+    Strip trailing redundant LLM source lines (e.g. 'Source: Page 1')
+    so the UI's authoritative SOURCES section is the single citation area.
+    """
+    if not text:
+        return ""
+    import re
+    cleaned = re.sub(
+        r"(?i)\n+^\s*(?:sources?|pages?|referenced sections?)\s*:\s*.*$",
+        "",
+        text,
+        flags=re.MULTILINE,
+    ).strip()
+    return cleaned
+
+
 def _clean_model_name(name: str) -> str:
     """Format model identifier cleanly for UI display by removing provider-routing tags like :free."""
     if not name:
         return ""
-    if name.endswith(":free"):
-        return name[:-5]
-    elif ":" in name and not name.startswith("http"):
-        return name.split(":")[0]
-    return name
+    cleaned = str(name).strip()
+    if cleaned.endswith(":free"):
+        cleaned = cleaned[:-5]
+    elif ":" in cleaned and not cleaned.startswith("http"):
+        cleaned = cleaned.split(":")[0]
+    cleaned = cleaned.strip()
+    return cleaned if cleaned not in ("free", ":free") else ""
 
 
 def _format_citation_label(s: dict, multi_file: bool = False) -> str:
@@ -668,47 +685,42 @@ def _format_citation_label(s: dict, multi_file: bool = False) -> str:
 
 def _render_response_metadata(msg: dict):
     """
-    Render clean source citations and grounding telemetry for an assistant response.
-    Exposes no raw debug or provider-routing strings.
+    Render clean SOURCES section and RETRIEVAL telemetry evidence.
+    Exposes no raw provider/routing strings or duplicate text.
     """
     sources = msg.get("sources", [])
-    raw_model = msg.get("model", "")
-    model_name = _clean_model_name(raw_model)
     retrieval_stats = msg.get("retrieval", {})
 
     pipe = _pipeline()
     indexed_docs = pipe.get_document_list() if pipe else []
     multi_file = len(indexed_docs) > 1
 
+    # 1. SOURCES
     if sources:
-        pills_html = ""
+        st.markdown("<div class='meta-heading'>SOURCES</div>", unsafe_allow_html=True)
+        pills_html = []
         for s in sources:
             label = _format_citation_label(s, multi_file=multi_file)
-            pills_html += f'<span class="src-pill">[ {_html.escape(label)} ]</span>'
+            pills_html.append(f'<span class="src-pill">[ {_html.escape(label)} ]</span>')
 
         st.markdown(
-            f'<div class="src-container">'
-            f'<div class="src-title">Sources</div>'
-            f'<div>{pills_html}</div>'
-            f'</div>',
+            f'<div class="src-container">{"".join(pills_html)}</div>',
             unsafe_allow_html=True,
         )
 
-    footer_parts = []
+    # 2. RETRIEVAL EVIDENCE
     num_candidates = retrieval_stats.get("total_candidates") or len(sources)
     if num_candidates:
-        footer_parts.append(f"Grounded in {num_candidates} retrieved passages · reranked")
+        retrieval_text = f"{num_candidates} passages retrieved · cross-encoder reranked"
     elif sources:
-        footer_parts.append(f"Grounded in {len(sources)} retrieved passages")
+        retrieval_text = f"{len(sources)} passages retrieved · cross-encoder reranked"
+    else:
+        retrieval_text = None
 
-    if model_name:
-        short_model = model_name.split("/")[-1]
-        footer_parts.append(f"Model: {short_model}")
-
-    if footer_parts:
-        telemetry_str = "  ·  ".join(footer_parts)
+    if retrieval_text:
+        st.markdown("<div class='meta-heading'>RETRIEVAL</div>", unsafe_allow_html=True)
         st.markdown(
-            f'<div class="telemetry-footer">{_html.escape(telemetry_str)}</div>',
+            f'<div class="telemetry-footer">{_html.escape(retrieval_text)}</div>',
             unsafe_allow_html=True,
         )
 
@@ -762,8 +774,9 @@ def render_extract():
     last = _last_assistant_msg()
     if last:
         st.divider()
-        st.markdown("**Extracted information**")
-        st.markdown(last["content"])
+        st.markdown("<div class='meta-heading'>ANSWER</div>", unsafe_allow_html=True)
+        clean_body = _clean_answer_text(last["content"])
+        st.markdown(clean_body)
         _render_response_metadata(last)
 
         ents = last.get("entities") or {}
@@ -799,8 +812,9 @@ def render_anomaly():
     last = _last_assistant_msg()
     if last:
         st.divider()
-        st.markdown("**Analysis result**")
-        st.markdown(last["content"])
+        st.markdown("<div class='meta-heading'>ANSWER</div>", unsafe_allow_html=True)
+        clean_body = _clean_answer_text(last["content"])
+        st.markdown(clean_body)
         _render_response_metadata(last)
 
         anomalies = last.get("anomalies") or []
