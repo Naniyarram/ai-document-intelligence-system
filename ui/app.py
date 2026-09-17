@@ -70,16 +70,17 @@ st.markdown("""
     margin-bottom: 4px;
 }
 
-/* Source citation pills container (flex wrap for clean separation). */
+/* Source citation pills container (stacked column layout for scannability). */
 .src-container {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    flex-direction: column;
+    gap: 4px;
     margin-top: 4px;
     margin-bottom: 8px;
 }
 .src-pill {
     display: inline-block;
+    align-self: flex-start;
     background: #141824;
     border: 1px solid #232A3E;
     border-radius: 4px;
@@ -699,9 +700,12 @@ def _render_response_metadata(msg: dict):
     if sources:
         st.markdown("<div class='meta-heading'>SOURCES</div>", unsafe_allow_html=True)
         pills_html = []
+        seen = set()
         for s in sources:
             label = _format_citation_label(s, multi_file=multi_file)
-            pills_html.append(f'<span class="src-pill">[ {_html.escape(label)} ]</span>')
+            if label not in seen:
+                seen.add(label)
+                pills_html.append(f'<div class="src-pill">[ {_html.escape(label)} ]</div>')
 
         st.markdown(
             f'<div class="src-container">{"".join(pills_html)}</div>',
