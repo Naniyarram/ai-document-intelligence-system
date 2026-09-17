@@ -1,0 +1,54 @@
+CONSULTING AGREEMENT
+
+This Consulting Agreement (the 'Agreement') is entered into as of January 15, 2024,
+by and between Acme Corporation, a Delaware corporation with offices at 742 Evergreen
+Terrace, Springfield, IL 62704 ('Client'), and Jane Smith Consulting LLC, a California
+limited liability company ('Consultant').
+
+1. SCOPE OF SERVICES
+
+The Consultant agrees to provide strategic advisory services related to digital
+transformation, including but not limited to: (a) assessment of current technology
+infrastructure; (b) development of a three-year technology roadmap; (c) vendor
+evaluation and selection support; and (d) change management recommendations. The
+Consultant shall deliver a comprehensive written report within 90 days of the
+Effective Date.
+
+2. COMPENSATION
+
+Client shall pay Consultant a fixed fee of $84,200.00 for all services described
+herein. Payment shall be made in three installments: (i) $25,000 upon execution of
+this Agreement; (ii) $30,000 upon delivery of the interim report at Day 45; and
+(iii) $29,200 upon delivery of the final report. Late payments shall accrue interest
+at a rate of 1.5% per month.
+
+3. TERM AND TERMINATION
+
+This Agreement shall commence on the Effective Date and continue for a period of
+six (6) months unless earlier terminated. Either party may terminate this Agreement
+upon thirty (30) days' prior written notice to the other party. In the event of
+termination, the Consultant shall be compensated for all services performed up to
+the date of termination, calculated on a pro-rata basis.
+
+4. CONFIDENTIALITY
+
+Each party agrees to maintain the confidentiality of all proprietary information
+disclosed by the other party during the term of this Agreement. This obligation
+shall survive termination of this Agreement for a period of two (2) years.
+Confidential information includes, but is not limited to, trade secrets, customer
+lists, financial data, and business strategies.
+
+5. GOVERNING LAW
+
+This Agreement shall be governed by and construed in accordance with the laws of
+the State of Delaware, without regard to its conflict of laws provisions. Any
+disputes arising under this Agreement shall be resolved through binding arbitration
+in Wilmington, Delaware.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first
+written above.
+
+Signed: John Doe, CEO, Acme Corporation
+Signed: Jane Smith, Managing Partner, Jane Smith Consulting LLC
+Contact: support@acme-corp.com | billing@janesmithconsulting.com
+Invoice Reference: INV-2024-0341
