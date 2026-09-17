@@ -16,14 +16,13 @@ Your job is to answer questions based STRICTLY on the document context provided.
 Rules:
 1. ONLY use information from the provided context. Do not use any external knowledge.
 2. If the answer is not in the context, say clearly: "I couldn't find this information in the document."
-3. Always cite your source: mention the page number or section name.
-4. For tables and numbers, reproduce exact values — do not estimate.
-5. Keep answers concise but complete.
-6. For follow-up questions, use the conversation history to understand references like "it" or "that".
+3. For tables and numbers, reproduce exact values — do not estimate.
+4. Keep answers concise, synthesized, and well-structured.
+5. For follow-up questions, use the conversation history to understand references like "it" or "that".
+6. Do not append trailing 'Source:' lines in your text response (citations are displayed separately by the UI).
 
 Format:
-- Use bullet points for lists
-- End with: Source: [page/section]
+- Synthesize key points clearly using clean bullet points (•) or key-value pairs
 - For numerical data, preserve exact values from the document
 """
 
@@ -177,8 +176,8 @@ class LLMHandler:
         mode: str,
     ) -> str:
         """
-        Build a simple extractive answer from retrieved chunks when the remote
-        LLM is unavailable. This keeps the response grounded in the document.
+        Build a concise, synthesized answer from retrieved chunks when the remote
+        LLM is unavailable. Keeps the response grounded in the document.
         """
         if not retrieved_chunks:
             return ""
@@ -194,39 +193,36 @@ class LLMHandler:
         }
 
         ranked_sentences = []
-        for chunk in retrieved_chunks[:3]:
+        for chunk in retrieved_chunks[:4]:
             text = chunk.get("text", "")
-            meta = chunk.get("metadata", {})
-            source = f"{meta.get('source_file', 'Unknown')} p.{meta.get('page_number', '?')}"
             sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
             for sentence in sentences:
                 cleaned = sentence.strip()
-                if not cleaned:
+                cleaned = re.sub(r"^\[?\d+[\.\s]+[A-Z\s]+\]?", "", cleaned).strip()
+                if not cleaned or len(cleaned) < 20:
                     continue
                 sentence_terms = set(re.findall(r"\b\w+\b", cleaned.lower()))
                 overlap = len(query_terms & sentence_terms)
-                ranked_sentences.append((overlap, cleaned, source))
+                ranked_sentences.append((overlap, cleaned))
 
         ranked_sentences.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
-        selected = ranked_sentences[:3]
+        selected = []
+        seen = set()
+        for _, sentence in ranked_sentences:
+            key = sentence.lower()
+            if key not in seen:
+                seen.add(key)
+                selected.append(sentence)
+            if len(selected) >= 4:
+                break
+
         if not selected:
             return ""
 
         lines = []
-        if mode == "summarize":
-            lines.append("Document summary from retrieved sections:")
-        elif mode == "extract":
-            lines.append("Extracted details from the document:")
-        elif mode == "anomaly":
-            lines.append("Relevant document evidence for anomaly review:")
-        else:
-            lines.append("Grounded answer from the document:")
+        for sentence in selected:
+            lines.append(f"• {sentence}")
 
-        for _, sentence, source in selected:
-            lines.append(f"- {sentence} ({source})")
-
-        primary_source = selected[0][2]
-        lines.append(f"Source: {primary_source}")
         return "\n".join(lines)
 
     def _is_document_overview_query(self, query: str, mode: str) -> bool:
@@ -248,53 +244,36 @@ class LLMHandler:
         return any(phrase in query_lower for phrase in overview_phrases)
 
     def _build_document_overview(self, retrieved_chunks: List[dict]) -> str:
-        """Create a concise extractive overview from retrieved chunks."""
+        """Create a clean, synthesized document summary from retrieved chunks."""
         combined = "\n".join(chunk.get("text", "") for chunk in retrieved_chunks)
         if not combined.strip():
             return ""
 
-        source_meta = retrieved_chunks[0].get("metadata", {})
-        source_label = (
-            f"{source_meta.get('source_file', 'Unknown')} "
-            f"p.{source_meta.get('page_number', '?')}"
-        )
+        first_meta = retrieved_chunks[0].get("metadata", {})
+        doc_name = first_meta.get("source_file", "Document")
 
-        normalized_lines = [
-            re.sub(r"\s+", " ", line).strip()
-            for line in combined.splitlines()
-        ]
-        candidate_lines = [
-            line for line in normalized_lines
-            if 25 <= len(line) <= 220
-        ]
-
-        if not candidate_lines:
-            sentences = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", combined))
-            candidate_lines = [
-                sentence.strip()
-                for sentence in sentences
-                if 25 <= len(sentence.strip()) <= 220
-            ]
-
-        selected = []
+        raw_lines = [line.strip() for line in combined.splitlines() if line.strip()]
+        bullets = []
         seen = set()
-        for line in candidate_lines:
-            key = line.lower()
-            if key in seen:
+
+        for line in raw_lines:
+            cleaned = re.sub(r"^\[?\d+[\.\s]+[A-Z\s]+\]?", "", line).strip()
+            if len(cleaned) < 18 or cleaned.isupper():
                 continue
-            seen.add(key)
-            selected.append(line)
-            if len(selected) >= 5:
+            if len(cleaned) > 220:
+                cleaned = cleaned[:220].rsplit(" ", 1)[0] + "..."
+
+            key = cleaned.lower()
+            if key not in seen:
+                seen.add(key)
+                bullets.append(f"• {cleaned}")
+            if len(bullets) >= 5:
                 break
 
-        if not selected:
-            return ""
+        if not bullets:
+            return f"Summary of {doc_name} based on retrieved context."
 
-        lines = ["Document overview from retrieved evidence:"]
-        for line in selected:
-            lines.append(f"- {line}")
-        lines.append(f"Source: {source_label}")
-        return "\n".join(lines)
+        return f"Summary of {doc_name}:\n\n" + "\n".join(bullets)
 
     def _estimate_answer_quality(
         self,
