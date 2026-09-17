@@ -494,7 +494,7 @@ def _welcome():
             "Scanned pages and images are processed by Qwen2.5-VL-7B."
         )
         st.markdown("")
-        st.info("Use the sidebar uploader to the left →", icon="↑")
+        st.info("Use the sidebar uploader to the left →")
 
     st.divider()
 
