@@ -240,25 +240,15 @@ def render_sidebar():
         st.caption("Multimodal RAG · Hybrid Retrieval · Grounded Q&A")
         st.divider()
 
-        # Primary action when nothing is loaded: try sample.
+        # Sidebar document uploader and list
         pipe = _pipeline()
-        docs = pipe.get_document_list() if pipe else []
-        if not docs and st.session_state.active_doc is None:
-            if st.button(
-                "Try Sample Document",
-                type="primary",
-                use_container_width=True,
-                help="Load a pre-built consulting agreement and run live queries against it.",
-            ):
-                _load_sample()
-            st.caption("No upload required.")
-            st.divider()
 
         # Upload
         st.markdown("**Upload a document**")
         uploaded = st.file_uploader(
             "file",
             type=Config.SUPPORTED_FORMATS,
+            key="sidebar_uploader",
             label_visibility="collapsed",
             help=f"PDF, DOCX, XLSX, CSV, TXT, PNG, JPG — max {Config.MAX_UPLOAD_MB} MB",
         )
@@ -267,7 +257,7 @@ def render_sidebar():
             st.caption(f"{uploaded.name} · {size_mb:.1f} MB")
             if size_mb > Config.MAX_UPLOAD_MB:
                 st.error(f"Exceeds {Config.MAX_UPLOAD_MB} MB limit.")
-            elif st.button("Index Document", type="primary", use_container_width=True):
+            elif st.button("Index Document", key="btn_index_sidebar", type="primary", use_container_width=True):
                 _do_index(uploaded)
 
         st.divider()
@@ -317,8 +307,8 @@ def render_sidebar():
 
 def _render_pipeline_status():
     """
-    Show real runtime stats when a document is active; show component
-    availability otherwise. Never fabricates counts or timings.
+    Show real runtime stats when a document is active.
+    When idle, show grey indicators and status ('idle' / 'ready').
     """
     from config import Config
     pipe      = _pipeline()
@@ -328,34 +318,37 @@ def _render_pipeline_status():
     last_ret  = _last_assistant_msg()
     ret_stats = last_ret.get("retrieval", {}) if last_ret else {}
 
-    # Each stage: (name, available, runtime_value_or_None)
-    stages = [
-        ("Ingestion",
-         True,
-         f"{doc_info['total_pages']} pages" if doc_info.get("total_pages") else None),
-        ("VLM",
-         api_ready,
-         "Qwen2.5-VL-7B"),
-        ("Chunker",
-         True,
-         f"{doc_info['total_chunks']} chunks" if doc_info.get("total_chunks") else None),
-        ("Embedder",
-         True,
-         f"{doc_info['indexed_chunks']} vectors" if doc_info.get("indexed_chunks") else None),
-        ("Retriever",
-         True,
-         (f"top {ret_stats['total_candidates']} reranked"
-          if ret_stats.get("total_candidates") else "BM25 + Dense + Reranker")),
-        ("LLM",
-         api_ready,
-         Config.get_llm_model().split("/")[-1][:28] if api_ready else "API key required"),
-    ]
-    for name, ok, runtime_val in stages:
-        icon = "🟢" if ok else "⚫"
-        if runtime_val:
-            st.caption(f"{icon} **{name}** `{runtime_val}`")
-        else:
-            st.caption(f"{icon} **{name}**")
+    if not active or not doc_info:
+        stages = [
+            ("Ingestion", "idle"),
+            ("VLM", "idle"),
+            ("Chunker", "idle"),
+            ("Embedder", "idle"),
+            ("Retriever", "idle"),
+            ("LLM", "ready" if api_ready else "no key"),
+        ]
+        for name, val in stages:
+            st.caption(f"○ **{name}** `{val}`")
+    else:
+        pages     = doc_info.get("total_pages", 1)
+        vlm_pages = doc_info.get("visual_pages", 0)
+        chunks    = doc_info.get("total_chunks", 0)
+        vecs      = doc_info.get("indexed_chunks", chunks)
+        time_sec  = doc_info.get("processing_time_sec")
+        time_str  = f" · {time_sec}s" if isinstance(time_sec, (int, float)) else ""
+        llm_model = Config.get_llm_model().split("/")[-1][:24]
+        ret_val   = f"top {ret_stats['total_candidates']} reranked" if ret_stats.get("total_candidates") else "top-k 5 · reranked"
+
+        stages = [
+            ("Ingestion", f"{pages} pages{time_str}"),
+            ("VLM", f"{vlm_pages} scanned pages"),
+            ("Chunker", f"{chunks} chunks"),
+            ("Embedder", f"{vecs} vecs · 384d"),
+            ("Retriever", ret_val),
+            ("LLM", llm_model),
+        ]
+        for name, val in stages:
+            st.caption(f"● **{name}** `{val}`")
 
 
 def _do_index(uploaded):
@@ -439,88 +432,85 @@ def render_main():
 def _welcome():
     """
     Welcome screen.
-
-    Goal: a visitor should understand what this system is, see that it actually
-    works, and be able to trigger a real query in under 10 seconds — without
-    uploading anything or configuring API keys.
-
-    Structure:
-    1. Heading + one-line technical description.
-    2. Primary action: Try Sample Document.
-    3. Brief description of what the sample demonstrates.
-    4. Secondary action: Upload your own document.
+    Presents two immediate options: try the pre-indexed sample document,
+    or upload a custom document directly.
     """
+    from config import Config
+
     st.markdown("## AI Document Intelligence")
     st.markdown(
-        "A 6-stage multimodal RAG pipeline: document ingestion (PDF/DOCX/scans) → "
-        "VLM processing → semantic chunking → vector embedding → "
-        "BM25 + dense hybrid retrieval → cross-encoder reranking → "
-        "grounded LLM generation with page/section citations."
+        "Multimodal RAG pipeline: multi-format ingestion → VLM layout OCR → "
+        "semantic chunking → 384d vector embedding → BM25 + dense retrieval → "
+        "cross-encoder reranking → grounded LLM generation with citations."
     )
     st.divider()
 
-    col_main, col_sep, col_upload = st.columns([3, 0.1, 2])
+    col_main, col_sep, col_upload = st.columns([1, 0.05, 1])
 
     with col_main:
-        st.markdown("#### Try it now — no upload required")
-        st.markdown(
-            "The sample is a consulting agreement with 5 sections: Scope, Compensation, "
-            "Term & Termination, Confidentiality, and Governing Law. "
-            "It exercises the retrieval and generation pipeline end-to-end."
+        st.markdown("#### Try sample document")
+        st.caption(
+            "Pre-built consulting agreement covering Scope, Compensation, "
+            "Termination, Confidentiality, and Governing Law."
         )
         st.markdown("")
         if st.button(
-            "→  Try Sample Document",
+            "→ Try Sample Document",
             type="primary",
             use_container_width=True,
         ):
             _load_sample()
-        st.caption(
-            "Loads a real document through the full pipeline. "
-            "BM25 + dense search + cross-encoder reranker. "
-            "Answers grounded with page and section citations."
-        )
 
     with col_sep:
         st.markdown(
-            '<div style="height:180px; border-left:1px solid #1E2130; margin:0 auto;"></div>',
+            '<div style="height:170px; border-left:1px solid #1E2130; margin:0 auto;"></div>',
             unsafe_allow_html=True,
         )
 
     with col_upload:
-        st.markdown("#### Upload your own")
-        st.markdown(
-            "PDF, DOCX, XLSX, CSV, TXT, PNG, JPG — up to 50 MB. "
-            "Scanned pages and images are processed by Qwen2.5-VL-7B."
+        st.markdown("#### Upload custom document")
+        st.caption(
+            "PDF, DOCX, XLSX, CSV, TXT, PNG, JPG (up to 50 MB). "
+            "Scanned pages and images processed by Qwen2.5-VL-7B."
         )
-        st.markdown("")
-        st.info("Use the sidebar uploader to the left →")
+        uploaded_main = st.file_uploader(
+            "Upload document",
+            type=Config.SUPPORTED_FORMATS,
+            key="welcome_uploader",
+            label_visibility="collapsed",
+            help=f"PDF, DOCX, XLSX, CSV, TXT, PNG, JPG — max {Config.MAX_UPLOAD_MB} MB",
+        )
+        if uploaded_main:
+            size_mb = uploaded_main.size / 1_048_576
+            st.caption(f"{uploaded_main.name} · {size_mb:.1f} MB")
+            if size_mb > Config.MAX_UPLOAD_MB:
+                st.error(f"Exceeds {Config.MAX_UPLOAD_MB} MB limit.")
+            elif st.button("Index Document", key="btn_index_welcome", type="primary", use_container_width=True):
+                _do_index(uploaded_main)
 
     st.divider()
 
-    # What the pipeline actually does — in one line each, no marketing copy.
     st.markdown("##### Pipeline stages")
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("**Ingestion & VLM**")
         st.caption(
-            "Loads any document format. "
-            "Scanned pages and images go through Qwen2.5-VL-7B for OCR/transcription "
-            "before chunking — so visual content is fully searchable."
+            "Parses multi-format files. "
+            "Scanned pages and embedded images are routed to Qwen2.5-VL-7B "
+            "for layout-aware transcription before chunking."
         )
     with c2:
         st.markdown("**Hybrid Retrieval**")
         st.caption(
-            "BM25 keyword index and a dense vector index (all-MiniLM-L6-v2, 384-dim) "
-            "run in parallel. Results are merged, deduplicated, and reranked by a "
-            "cross-encoder (ms-marco-MiniLM-L-6-v2)."
+            "Parallel BM25 sparse index and all-MiniLM-L6-v2 dense vector index. "
+            "Candidates are merged, deduplicated, and scored by a "
+            "ms-marco-MiniLM-L-6-v2 cross-encoder reranker."
         )
     with c3:
         st.markdown("**Grounded Generation**")
         st.caption(
-            "Llama-3.3-70B-Instruct answers using only retrieved context. "
-            "The system prompt forbids hallucination and requires page and section citations. "
-            "10-turn conversation memory for follow-up questions."
+            "Llama-3.3-70B / Gemma-4 generation strictly bound to retrieved context. "
+            "Requires page and section citations with 10-turn conversation memory."
         )
 
 
