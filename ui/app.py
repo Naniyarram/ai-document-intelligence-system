@@ -59,34 +59,39 @@ st.markdown("""
     color: #C8D0E8;
 }
 
-/* Source citation tags. */
-.src-row { margin-top: 6px; }
-.src-tag {
-    display: inline-block;
-    background: #131722;
-    border: 1px solid #22273D;
-    border-radius: 4px;
-    padding: 2px 8px;
+/* Source citation container & pills. */
+.src-container {
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+.src-title {
     font-size: 11px;
-    color: #7C8FAE;
-    font-family: monospace;
-    margin: 2px 4px 2px 0;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748B;
+    margin-bottom: 4px;
+}
+.src-pill {
+    display: inline-block;
+    background: #141824;
+    border: 1px solid #232A3E;
+    border-radius: 4px;
+    padding: 3px 9px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #94A3B8;
+    margin: 2px 6px 4px 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-/* Answer quality badges — colour-coded by score range. */
-.badge {
-    display: inline-block;
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: 11px;
-    font-family: monospace;
-    margin: 2px 4px 2px 0;
-    border: 1px solid;
+/* Grounding & telemetry footer line. */
+.telemetry-footer {
+    font-size: 12px;
+    color: #64748B;
+    margin-top: 4px;
+    margin-bottom: 12px;
 }
-.badge-good { color: #4ADE80; border-color: #1E3A2F; background: #0D1F18; }
-.badge-mid  { color: #FBBF24; border-color: #3A2E1A; background: #1A1508; }
-.badge-low  { color: #F87171; border-color: #3A1A1A; background: #1A0A0A; }
-.badge-info { color: #7C8FAE; border-color: #22273D; background: #111318; }
 
 /* Pipeline architecture stage rows. */
 .stage-row {
@@ -298,8 +303,8 @@ def render_sidebar():
 
         with st.expander("Configuration", expanded=False):
             st.caption(f"**Backend:** `{Config.get_backend_name()}`")
-            st.caption(f"**LLM:** `{Config.get_llm_model()}`")
-            st.caption(f"**VLM:** `{Config.get_vlm_model()}`")
+            st.caption(f"**LLM:** `{_clean_model_name(Config.get_llm_model())}`")
+            st.caption(f"**VLM:** `{_clean_model_name(Config.get_vlm_model())}`")
             st.caption(f"**Embedder:** `{Config.EMBEDDING_MODEL}`")
             st.caption(f"**Chunk size:** {Config.CHUNK_SIZE} tokens")
             st.caption(f"**Active doc:** `{st.session_state.active_doc or 'None'}`")
@@ -336,7 +341,7 @@ def _render_pipeline_status():
         vecs      = doc_info.get("indexed_chunks", chunks)
         time_sec  = doc_info.get("processing_time_sec")
         time_str  = f" · {time_sec}s" if isinstance(time_sec, (int, float)) else ""
-        llm_model = Config.get_llm_model().split("/")[-1][:24]
+        llm_model = _clean_model_name(Config.get_llm_model()).split("/")[-1]
         ret_val   = f"top {ret_stats['total_candidates']} reranked" if ret_stats.get("total_candidates") else "top-k 5 · reranked"
 
         stages = [
@@ -550,8 +555,7 @@ def render_qa():
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-                _quality_strip(msg)
-                _source_tags(msg.get("sources", []))
+                _render_response_metadata(msg)
 
     st.divider()
 
@@ -620,42 +624,93 @@ def _run(question, mode="qa"):
     })
 
 
-def _quality_strip(msg):
-    q     = msg.get("quality") or {}
-    conf  = q.get("confidence")
-    faith = q.get("faithfulness")
-    model = msg.get("model", "")
+def _clean_model_name(name: str) -> str:
+    """Format model identifier cleanly for UI display by removing provider-routing tags like :free."""
+    if not name:
+        return ""
+    if name.endswith(":free"):
+        return name[:-5]
+    elif ":" in name and not name.startswith("http"):
+        return name.split(":")[0]
+    return name
 
-    def _cls(v):
-        if v is None:
-            return "badge-info"
-        return "badge-good" if v >= 0.75 else ("badge-mid" if v >= 0.45 else "badge-low")
+
+def _format_citation_label(s: dict, multi_file: bool = False) -> str:
+    """Format citation metadata into clean, readable reference strings."""
+    file_name = s.get("file", "")
+    page = s.get("page", "?")
+    section = (s.get("section") or "").strip()
+
+    page_str = f"p.{page}" if page != "?" else "p.?"
+
+    sec_str = ""
+    if section:
+        import re
+        match = re.match(r"^(\d+)[\.\s]+(.+)$", section)
+        if match:
+            num, title = match.groups()
+            cleaned_title = title.strip().title().replace(" And ", " & ")
+            sec_str = f"§{num} {cleaned_title}"
+        else:
+            cleaned_title = section.strip().title().replace(" And ", " & ")
+            sec_str = f"§ {cleaned_title}"
 
     parts = []
-    if conf is not None:
-        parts.append(f'<span class="badge {_cls(conf)}">conf {conf:.2f}</span>')
-    if faith is not None:
-        parts.append(f'<span class="badge {_cls(faith)}">faith {faith:.2f}</span>')
-    if model:
-        short = model.split("/")[-1][:30]
-        parts.append(f'<span class="badge badge-info">{_html.escape(short)}</span>')
-    if parts:
-        st.markdown("".join(parts), unsafe_allow_html=True)
+    if multi_file and file_name:
+        short_file = Path(file_name).stem[:16]
+        parts.append(short_file)
+    parts.append(page_str)
+    if sec_str:
+        parts.append(sec_str)
+
+    return " · ".join(parts)
 
 
-def _source_tags(sources):
-    if not sources:
-        return
-    tags = ""
-    for s in sources:
-        label = f"{s['file']}  p.{s['page']}"
-        if s.get("section"):
-            label += f" · {s['section'][:28]}"
-        tags += f'<span class="src-tag">{_html.escape(label)}</span>'
-    st.markdown(
-        f'<div class="src-row"><small style="color:#3D4459;">Sources</small> {tags}</div>',
-        unsafe_allow_html=True,
-    )
+def _render_response_metadata(msg: dict):
+    """
+    Render clean source citations and grounding telemetry for an assistant response.
+    Exposes no raw debug or provider-routing strings.
+    """
+    sources = msg.get("sources", [])
+    raw_model = msg.get("model", "")
+    model_name = _clean_model_name(raw_model)
+    retrieval_stats = msg.get("retrieval", {})
+
+    pipe = _pipeline()
+    indexed_docs = pipe.get_document_list() if pipe else []
+    multi_file = len(indexed_docs) > 1
+
+    if sources:
+        pills_html = ""
+        for s in sources:
+            label = _format_citation_label(s, multi_file=multi_file)
+            pills_html += f'<span class="src-pill">[ {_html.escape(label)} ]</span>'
+
+        st.markdown(
+            f'<div class="src-container">'
+            f'<div class="src-title">Sources</div>'
+            f'<div>{pills_html}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    footer_parts = []
+    num_candidates = retrieval_stats.get("total_candidates") or len(sources)
+    if num_candidates:
+        footer_parts.append(f"Grounded in {num_candidates} retrieved passages · reranked")
+    elif sources:
+        footer_parts.append(f"Grounded in {len(sources)} retrieved passages")
+
+    if model_name:
+        short_model = model_name.split("/")[-1]
+        footer_parts.append(f"Model: {short_model}")
+
+    if footer_parts:
+        telemetry_str = "  ·  ".join(footer_parts)
+        st.markdown(
+            f'<div class="telemetry-footer">{_html.escape(telemetry_str)}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def _last_assistant_msg():
@@ -709,8 +764,7 @@ def render_extract():
         st.divider()
         st.markdown("**Extracted information**")
         st.markdown(last["content"])
-        _quality_strip(last)
-        _source_tags(last.get("sources", []))
+        _render_response_metadata(last)
 
         ents = last.get("entities") or {}
         if ents:
@@ -747,8 +801,7 @@ def render_anomaly():
         st.divider()
         st.markdown("**Analysis result**")
         st.markdown(last["content"])
-        _quality_strip(last)
-        _source_tags(last.get("sources", []))
+        _render_response_metadata(last)
 
         anomalies = last.get("anomalies") or []
         if anomalies:
